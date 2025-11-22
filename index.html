@@ -10,63 +10,396 @@
         
         /* Utility */
         .hidden { display: none !important; }
-        .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 1rem; width: 100%; margin-bottom: 10px;}
+        .btn { padding: 12px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 1rem; width: 100%; margin-bottom: 10px; transition: background 0.2s; }
         .btn-primary { background-color: var(--accent); color: #000; }
         .btn-danger { background-color: var(--card-bg); color: var(--danger); border: 1px solid var(--danger); }
-        input, select { background: #333; border: 1px solid #555; color: white; padding: 8px; border-radius: 4px; width: 100%; box-sizing: border-box; margin-bottom: 5px; }
+        .btn-secondary { background-color: #333; color: #fff; border: 1px solid #555; }
+        
+        input, select { background: #333; border: 1px solid #555; color: white; padding: 12px; border-radius: 8px; width: 100%; box-sizing: border-box; margin-bottom: 10px; font-size: 1rem; }
+
+        /* Header & Status */
+        .app-header { margin-bottom: 20px; text-align: center; }
+        #status { padding: 10px; border-radius: 8px; background: #1a1a1a; color: #888; font-size: 0.9rem; margin-bottom: 15px; border: 1px solid #333; }
+        #status.connected { color: var(--success); border-color: var(--success); background: rgba(0, 200, 81, 0.1); }
+        #status.error { color: var(--danger); border-color: var(--danger); background: rgba(255, 68, 68, 0.1); }
 
         /* Sections */
-        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 30px; color: var(--accent); }
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 30px; color: var(--accent); font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
         
         /* Dashboard Grid */
-        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; margin-bottom: 30px; }
-        .dash-card { background: var(--card-bg); padding: 15px; border-radius: 12px; text-align: center; position: relative; border: 1px solid #333; transition: all 0.2s; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .dash-card { background: var(--card-bg); padding: 15px; border-radius: 12px; text-align: center; position: relative; border: 1px solid #333; }
         .dash-card.alarm { border-color: var(--danger); background: rgba(255, 68, 68, 0.1); animation: pulse 1s infinite; }
-        .dash-card .label { font-size: 0.9rem; color: #aaa; margin-bottom: 5px; }
+        .dash-card .label { font-size: 0.8rem; color: #aaa; margin-bottom: 5px; text-transform: uppercase; }
         .dash-card .value { font-size: 2rem; font-weight: bold; }
-        .dash-card .unit { font-size: 1rem; color: #888; }
-        .dash-card .edit-btn { position: absolute; top: 5px; right: 5px; background: none; border: none; color: #555; cursor: pointer; font-size: 1.2rem; }
+        .dash-card .unit { font-size: 0.9rem; color: #888; }
+        .dash-card .edit-btn { position: absolute; top: 5px; right: 5px; background: none; border: none; color: #555; cursor: pointer; font-size: 1.2rem; padding: 5px; }
 
         /* Diagnostic List */
         .diag-list { display: flex; flex-direction: column; gap: 10px; }
-        .diag-row { background: var(--card-bg); padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #555; }
-        .diag-row.active { border-left-color: var(--success); }
+        .diag-row { background: var(--card-bg); padding: 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #333; }
+        .diag-row.active { border-left-color: var(--success); background: #252525; }
         .diag-info { flex-grow: 1; }
-        .diag-offset { font-family: monospace; color: #888; font-size: 0.8rem; }
+        .diag-offset { font-family: monospace; color: #666; font-size: 0.75rem; margin-bottom: 2px; }
         .diag-val { font-family: monospace; font-size: 1.1rem; font-weight: bold; color: var(--accent); }
-        .diag-actions { display: flex; gap: 5px; }
-        .btn-small { padding: 5px 10px; font-size: 0.8rem; width: auto; margin: 0; }
+        .diag-preview { font-size: 0.8rem; color: #888; margin-left: 8px; font-weight: normal; }
+        .btn-small { padding: 6px 12px; font-size: 0.85rem; width: auto; margin: 0; }
 
         /* Modal */
-        .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.8); z-index: 100; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
-        .modal { background: var(--card-bg); padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; border: 1px solid #555; }
+        .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.8); z-index: 100; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
+        .modal { background: #222; padding: 25px; border-radius: 16px; width: 90%; max-width: 350px; border: 1px solid #444; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .modal h3 { margin-top: 0; color: var(--text); }
         .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.9rem; }
+        .form-group label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.85rem; }
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
     </style>
 </head>
 <body>
 
-    <!-- Connection Header -->
+    <!-- Global Status (Always Visible) -->
+    <div id="status">Ready to connect</div>
+
+    <!-- Connection Panel -->
     <div id="connectionPanel">
         <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key Here" />
         <button id="connectBtn" class="btn btn-primary">Start Scanning</button>
-        <div id="status" style="color: #888; font-size: 0.9rem; text-align: center; margin-top: 5px;">Ready to connect</div>
+        <div style="text-align:center; font-size:0.8rem; color:#555;">
+            Requires Chrome on Android with "Experimental Web Platform features" enabled.
+        </div>
+    </div>
+
+    <!-- Connected Controls (Hidden by default) -->
+    <div id="connectedControls" class="hidden">
+        <button id="disconnectBtn" class="btn btn-secondary" onclick="location.reload()">Stop / Disconnect</button>
     </div>
 
     <!-- The Dashboard -->
     <div id="dashboardSection" class="hidden">
-        <h2>Your Dashboard</h2>
-        <div id="dashboardGrid" class="dashboard-grid">
-            <!-- Cards injected here -->
+        <h2>Dashboard</h2>
+        <div id="dashboardGrid" class="dashboard-grid"></div>
+        <div id="noDashMsg" style="text-align:center; color: #555; padding: 20px; border: 1px dashed #333; border-radius: 8px;">
+            No sensors pinned.<br>Select data from the stream below.
         </div>
-        <div id="noDashMsg" style="text-align:center; color: #555; font-style: italic;">No sensors pinned. Select data from below to add.</div>
     </div>
 
     <!-- The Diagnostic Stream -->
     <div id="diagnosticSection" class="hidden">
-        <h2>Available Data Stream</h2>
+        <h2>Live Data Stream</h2>
+        <p style="font-size: 0.85rem; color: #888; margin-bottom: 15px;">
+            Below is the raw data from your device. Watch the numbers change to identify your sensors (Voltage, SOC, etc), then click <b>Track</b> to add them to your dashboard.
+        </p>
+        <div id="diagnosticList" class="diag-list"></div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal-overlay hidden">
+        <div class="modal">
+            <h3 id="modalTitle">Configure Sensor</h3>
+            <input type="hidden" id="editOffset">
+            
+            <div class="form-group">
+                <label>Display Name</label>
+                <input type="text" id="editName" placeholder="e.g. Battery SOC">
+            </div>
+
+            <div class="form-group">
+                <label>Scale (Multiplier)</label>
+                <select id="editScale">
+                    <option value="0.1">x0.1 (Percentages, Temps)</option>
+                    <option value="0.01">x0.01 (Voltages)</option>
+                    <option value="1">x1 (Raw Data)</option>
+                    <option value="0.001">x0.001 (Precise Current)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Unit Label</label>
+                <input type="text" id="editUnit" placeholder="e.g. %, V, A">
+            </div>
+
+            <div style="display:flex; gap:10px;">
+                <div class="form-group" style="flex:1">
+                    <label>Low Alarm</label>
+                    <input type="number" id="editMin" placeholder="None">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label>High Alarm</label>
+                    <input type="number" id="editMax" placeholder="None">
+                </div>
+            </div>
+
+            <button id="saveSensorBtn" class="btn btn-primary">Save</button>
+            <button id="deleteSensorBtn" class="btn btn-danger">Remove</button>
+            <button onclick="closeModal()" class="btn btn-secondary">Cancel</button>
+        </div>
+    </div>
+
+<script>
+    // --- State Management ---
+    const VICTRON_ID = 0x02E1;
+    let encryptionKey = null;
+    let savedConfig = JSON.parse(localStorage.getItem('victron_config')) || { 
+        key: "", 
+        sensors: {} 
+    };
+
+    if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
+
+    // --- Helper Functions ---
+    function setStatus(msg, type = 'normal') {
+        const el = document.getElementById('status');
+        el.innerText = msg;
+        el.className = type;
+    }
+
+    // --- Dashboard Rendering ---
+    function renderDashboard(currentBytes = null) {
+        const grid = document.getElementById('dashboardGrid');
+        grid.innerHTML = '';
+        
+        const sensorKeys = Object.keys(savedConfig.sensors);
+        
+        if(sensorKeys.length === 0) {
+            document.getElementById('noDashMsg').classList.remove('hidden');
+            return;
+        }
+        document.getElementById('noDashMsg').classList.add('hidden');
+
+        sensorKeys.forEach(offset => {
+            const conf = savedConfig.sensors[offset];
+            let displayVal = "--";
+            let isAlarm = false;
+
+            if (currentBytes) {
+                const idx = parseInt(offset);
+                if (idx + 1 < currentBytes.length) {
+                    const raw = currentBytes[idx] | (currentBytes[idx+1] << 8);
+                    // Ignore 0x7FFF/0xFFFF (Data not available)
+                    if(raw !== 0xFFFF && raw !== 0x7FFF) {
+                        // Simple signed 16-bit handling
+                        let val = raw;
+                        if (raw > 32767) val = raw - 65536; // Treat high numbers as negative
+
+                        val = val * conf.scale;
+                        displayVal = val.toFixed(conf.scale < 0.1 ? 2 : 1);
+
+                        if (conf.min !== "" && val < parseFloat(conf.min)) isAlarm = true;
+                        if (conf.max !== "" && val > parseFloat(conf.max)) isAlarm = true;
+                    }
+                }
+            }
+
+            if (isAlarm) triggerNotification(conf.name, displayVal);
+
+            const div = document.createElement('div');
+            div.className = `dash-card ${isAlarm ? 'alarm' : ''}`;
+            div.innerHTML = `
+                <button class="edit-btn" onclick="openEdit('${offset}')">⚙️</button>
+                <div class="label">${conf.name}</div>
+                <div class="value">${displayVal}</div>
+                <div class="unit">${conf.unit}</div>
+            `;
+            grid.appendChild(div);
+        });
+    }
+
+    // --- Diagnostic Rendering ---
+    function renderDiagnostic(bytes) {
+        const list = document.getElementById('diagnosticList');
+        list.innerHTML = '';
+
+        // Scan byte pairs
+        for (let i = 0; i < bytes.length - 1; i++) {
+            const raw = bytes[i] | (bytes[i+1] << 8);
+            
+            // Skip empty/max padding noise
+            if (raw === 0 || raw === 0xFFFF || raw === 0x7FFF) continue;
+
+            const isTracked = savedConfig.sensors.hasOwnProperty(i.toString());
+            
+            // Calculate previews
+            let signedVal = raw > 32767 ? raw - 65536 : raw;
+            let prev1 = (signedVal * 0.1).toFixed(1);
+            let prev2 = (signedVal * 0.01).toFixed(2);
+
+            const row = document.createElement('div');
+            row.className = `diag-row ${isTracked ? 'active' : ''}`;
+            row.innerHTML = `
+                <div class="diag-info">
+                    <div class="diag-offset">Offset ${i} (Raw: ${raw})</div>
+                    <div class="diag-val">
+                        ${raw} 
+                        <span class="diag-preview">x0.1: ${prev1} | x0.01: ${prev2}</span>
+                    </div>
+                </div>
+                <div class="diag-actions">
+                    <button class="btn btn-primary btn-small" onclick="openEdit('${i}', ${raw})">
+                        ${isTracked ? 'Edit' : 'Track'}
+                    </button>
+                </div>
+            `;
+            list.appendChild(row);
+        }
+    }
+
+    // --- Configuration Modal ---
+    window.openEdit = function(offset, currentRaw = 0) {
+        const conf = savedConfig.sensors[offset] || { name: "", scale: 0.1, unit: "", min: "", max: "" };
+        
+        document.getElementById('editOffset').value = offset;
+        document.getElementById('editName').value = conf.name;
+        document.getElementById('editScale').value = conf.scale;
+        document.getElementById('editUnit').value = conf.unit;
+        document.getElementById('editMin').value = conf.min;
+        document.getElementById('editMax').value = conf.max;
+        
+        document.getElementById('modalTitle').innerText = `Configure Offset ${offset}`;
+        
+        // Heuristics for new sensors
+        if (!savedConfig.sensors[offset] && currentRaw !== 0) {
+            if (currentRaw > 1000 && currentRaw < 1600) { // ~12V-14V
+                document.getElementById('editName').value = "Voltage";
+                document.getElementById('editScale').value = "0.01";
+                document.getElementById('editUnit').value = "V";
+            } else if (currentRaw <= 1000 && currentRaw > 0) { // 0-100%
+                document.getElementById('editName').value = "SOC";
+                document.getElementById('editScale').value = "0.1";
+                document.getElementById('editUnit').value = "%";
+            }
+        }
+
+        document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    window.closeModal = function() {
+        document.getElementById('editModal').classList.add('hidden');
+    }
+
+    document.getElementById('saveSensorBtn').addEventListener('click', () => {
+        const offset = document.getElementById('editOffset').value;
+        savedConfig.sensors[offset] = {
+            name: document.getElementById('editName').value || `Sensor ${offset}`,
+            scale: parseFloat(document.getElementById('editScale').value),
+            unit: document.getElementById('editUnit').value,
+            min: document.getElementById('editMin').value,
+            max: document.getElementById('editMax').value
+        };
+        saveConfig();
+        closeModal();
+        renderDashboard();
+    });
+
+    document.getElementById('deleteSensorBtn').addEventListener('click', () => {
+        const offset = document.getElementById('editOffset').value;
+        delete savedConfig.sensors[offset];
+        saveConfig();
+        closeModal();
+        renderDashboard();
+    });
+
+    function saveConfig() {
+        savedConfig.key = document.getElementById('keyInput').value.trim();
+        localStorage.setItem('victron_config', JSON.stringify(savedConfig));
+    }
+
+    // --- Notifications ---
+    let lastNotifyTime = 0;
+    function triggerNotification(name, val) {
+        const now = Date.now();
+        if (now - lastNotifyTime > 60000) { 
+            if (Notification.permission === "granted") {
+                new Notification(`Alert: ${name}`, { body: `${name} is ${val}` });
+                if (navigator.vibrate) navigator.vibrate([200, 200, 200]);
+            }
+            lastNotifyTime = now;
+        }
+    }
+
+    // --- Bluetooth & Decryption ---
+    function hexToBytes(hex) {
+        const bytes = [];
+        for (let c = 0; c < hex.length; c += 2) bytes.push(parseInt(hex.substr(c, 2), 16));
+        return new Uint8Array(bytes);
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+        const keyHex = document.getElementById('keyInput').value.trim();
+        if (keyHex.length !== 32) return alert("Key must be 32 hex chars");
+        saveConfig();
+
+        if (Notification.permission !== "granted") Notification.requestPermission();
+
+        try {
+            setStatus("Initializing Crypto...", "normal");
+            const keyBytes = hexToBytes(keyHex);
+            encryptionKey = await window.crypto.subtle.importKey("raw", keyBytes, { name: "AES-CTR" }, false, ["decrypt"]);
+
+            setStatus("Requesting Bluetooth Device...", "normal");
+            
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: false,
+                filters: [{ namePrefix: 'Victron' }, { namePrefix: 'Smart' }, { namePrefix: 'Blue' }],
+                optionalManufacturerData: [VICTRON_ID]
+            });
+
+            // Browser capability check
+            if (typeof device.watchAdvertisements !== 'function') {
+                setStatus("Error: Your browser does not support passive scanning.", "error");
+                alert("Error: 'watchAdvertisements' not supported. Ensure you are using Chrome on Android with 'Experimental Web Platform features' enabled in chrome://flags.");
+                return;
+            }
+
+            // UI Transition
+            document.getElementById('connectionPanel').classList.add('hidden');
+            document.getElementById('connectedControls').classList.remove('hidden');
+            document.getElementById('dashboardSection').classList.remove('hidden');
+            document.getElementById('diagnosticSection').classList.remove('hidden');
+            
+            setStatus(`Connected to ${device.name}. Waiting for data...`, "connected");
+            renderDashboard();
+
+            device.addEventListener('advertisementreceived', async (event) => {
+                const victronData = event.manufacturerData.get(VICTRON_ID);
+                if (!victronData) return;
+                const data = new Uint8Array(victronData.buffer);
+                
+                // Check Record Type 0x10 (Encrypted)
+                if (data[0] !== 0x10) return;
+
+                // Decrypt
+                const nonce = new Uint8Array(16);
+                // Victron Nonce Format: [Model L, Model H, ReadoutType, 0x00, IV L, IV H, ...00]
+                nonce.set([data[1], data[2], data[3], 0x00, data[4], data[5]], 0);
+
+                try {
+                    const decryptedBuffer = await window.crypto.subtle.decrypt(
+                        { name: "AES-CTR", counter: nonce, length: 64 },
+                        encryptionKey,
+                        data.slice(7)
+                    );
+                    
+                    const decrypted = new Uint8Array(decryptedBuffer);
+                    
+                    setStatus(`Monitoring ${device.name} (Live)`, "connected");
+                    renderDashboard(decrypted);
+                    renderDiagnostic(decrypted);
+                    
+                } catch (e) { console.error(e); }
+            });
+
+            await device.watchAdvertisements();
+
+        } catch (err) {
+            console.error(err);
+            setStatus("Connection Failed: " + err, "error");
+        }
+    });
+</script>
+</body>
+</html>
+
+
         <p style="font-size: 0.8rem; color: #888;">These are the raw numbers coming from your device. Find the one that matches your battery and click "Track".</p>
         <div id="diagnosticList" class="diag-list">
             <!-- Raw rows injected here -->
