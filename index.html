@@ -3,70 +3,364 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Victron SOC Monitor</title>
+    <title>Victron Universal Dashboard</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #333; text-align: center; padding: 20px; }
-        .container { max-width: 400px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { font-size: 1.5rem; margin-bottom: 20px; color: #2c3e50; }
-        input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-family: monospace; }
-        button { width: 100%; padding: 15px; background-color: #3498db; color: white; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; }
-        button:disabled { background-color: #bdc3c7; }
-        .soc-display { font-size: 3.5rem; font-weight: bold; margin: 30px 0; color: #27ae60; }
-        .log { font-size: 0.8rem; color: #7f8c8d; margin-top: 20px; text-align: left; height: 150px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 10px; background: #f9f9f9; padding: 10px; }
-        .status { font-weight: bold; margin-bottom: 10px; color: #e67e22; }
-        .warning { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; margin-bottom: 15px; display: none; font-size: 0.9rem; }
+        :root { --bg: #121212; --card-bg: #1e1e1e; --text: #e0e0e0; --accent: #00d2ff; --danger: #ff4444; --success: #00c851; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-bottom: 100px;}
+        
+        /* Utility */
+        .hidden { display: none !important; }
+        .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 1rem; width: 100%; margin-bottom: 10px;}
+        .btn-primary { background-color: var(--accent); color: #000; }
+        .btn-danger { background-color: var(--card-bg); color: var(--danger); border: 1px solid var(--danger); }
+        input, select { background: #333; border: 1px solid #555; color: white; padding: 8px; border-radius: 4px; width: 100%; box-sizing: border-box; margin-bottom: 5px; }
+
+        /* Sections */
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 30px; color: var(--accent); }
+        
+        /* Dashboard Grid */
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .dash-card { background: var(--card-bg); padding: 15px; border-radius: 12px; text-align: center; position: relative; border: 1px solid #333; transition: all 0.2s; }
+        .dash-card.alarm { border-color: var(--danger); background: rgba(255, 68, 68, 0.1); animation: pulse 1s infinite; }
+        .dash-card .label { font-size: 0.9rem; color: #aaa; margin-bottom: 5px; }
+        .dash-card .value { font-size: 2rem; font-weight: bold; }
+        .dash-card .unit { font-size: 1rem; color: #888; }
+        .dash-card .edit-btn { position: absolute; top: 5px; right: 5px; background: none; border: none; color: #555; cursor: pointer; font-size: 1.2rem; }
+
+        /* Diagnostic List */
+        .diag-list { display: flex; flex-direction: column; gap: 10px; }
+        .diag-row { background: var(--card-bg); padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #555; }
+        .diag-row.active { border-left-color: var(--success); }
+        .diag-info { flex-grow: 1; }
+        .diag-offset { font-family: monospace; color: #888; font-size: 0.8rem; }
+        .diag-val { font-family: monospace; font-size: 1.1rem; font-weight: bold; color: var(--accent); }
+        .diag-actions { display: flex; gap: 5px; }
+        .btn-small { padding: 5px 10px; font-size: 0.8rem; width: auto; margin: 0; }
+
+        /* Modal */
+        .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.8); z-index: 100; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+        .modal { background: var(--card-bg); padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; border: 1px solid #555; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.9rem; }
+
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>Victron Monitor</h1>
-    
-    <div id="browserWarning" class="warning">
-        ⚠️ Your browser might not support Bluetooth Scanning. Please use <b>Google Chrome</b> and ensure "Experimental Web Platform features" is enabled in chrome://flags.
+    <!-- Connection Header -->
+    <div id="connectionPanel">
+        <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key Here" />
+        <button id="connectBtn" class="btn btn-primary">Start Scanning</button>
+        <div id="status" style="color: #888; font-size: 0.9rem; text-align: center; margin-top: 5px;">Ready to connect</div>
     </div>
 
-    <input type="text" id="keyInput" placeholder="Paste Encryption Key (Hex)" />
-    <input type="number" id="limitInput" placeholder="Alert Limit % (e.g., 50)" value="50" />
-    
-    <button id="connectBtn">Connect & Scan</button>
-    
-    <div class="status" id="statusMsg">Ready</div>
-    <div class="soc-display" id="socValue">--%</div>
-    
-    <div class="log" id="logBox"></div>
-</div>
+    <!-- The Dashboard -->
+    <div id="dashboardSection" class="hidden">
+        <h2>Your Dashboard</h2>
+        <div id="dashboardGrid" class="dashboard-grid">
+            <!-- Cards injected here -->
+        </div>
+        <div id="noDashMsg" style="text-align:center; color: #555; font-style: italic;">No sensors pinned. Select data from below to add.</div>
+    </div>
+
+    <!-- The Diagnostic Stream -->
+    <div id="diagnosticSection" class="hidden">
+        <h2>Available Data Stream</h2>
+        <p style="font-size: 0.8rem; color: #888;">These are the raw numbers coming from your device. Find the one that matches your battery and click "Track".</p>
+        <div id="diagnosticList" class="diag-list">
+            <!-- Raw rows injected here -->
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal-overlay hidden">
+        <div class="modal">
+            <h3 id="modalTitle">Configure Sensor</h3>
+            <input type="hidden" id="editOffset">
+            
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="editName" placeholder="e.g. Battery SOC">
+            </div>
+
+            <div class="form-group">
+                <label>Scale / Unit</label>
+                <select id="editScale">
+                    <option value="1">x1 (Raw Counter/State)</option>
+                    <option value="0.1">x0.1 (Percentage/Temp)</option>
+                    <option value="0.01">x0.01 (Voltage)</option>
+                    <option value="0.001">x0.001 (Precise Current)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Unit Label</label>
+                <input type="text" id="editUnit" placeholder="e.g. %, V, A">
+            </div>
+
+            <div style="display:flex; gap:10px;">
+                <div class="form-group" style="flex:1">
+                    <label>Low Alarm</label>
+                    <input type="number" id="editMin" placeholder="None">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label>High Alarm</label>
+                    <input type="number" id="editMax" placeholder="None">
+                </div>
+            </div>
+
+            <button id="saveSensorBtn" class="btn btn-primary">Save to Dashboard</button>
+            <button id="deleteSensorBtn" class="btn btn-danger">Stop Tracking</button>
+            <button onclick="closeModal()" class="btn" style="background:#333;">Cancel</button>
+        </div>
+    </div>
 
 <script>
-    const VICTRON_MANUFACTURER_ID = 0x02E1; // 737 decimal
+    // --- State Management ---
+    const VICTRON_ID = 0x02E1;
     let encryptionKey = null;
-    let alertLimit = 50;
-    let lastNotified = false;
-    let scanAbortController = null;
+    let savedConfig = JSON.parse(localStorage.getItem('victron_config')) || { 
+        key: "", 
+        sensors: {} // Format: { "12": { name: "SOC", scale: 0.1, unit: "%", min: 50, max: null } }
+    };
 
-    const logBox = document.getElementById('logBox');
-    const statusMsg = document.getElementById('statusMsg');
-    const socValue = document.getElementById('socValue');
-    const connectBtn = document.getElementById('connectBtn');
-    const browserWarning = document.getElementById('browserWarning');
+    // Fill key if saved
+    if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
 
-    // Initial Compatibility Check
-    if (!navigator.bluetooth) {
-        browserWarning.style.display = 'block';
-        browserWarning.innerHTML = "❌ Web Bluetooth is not supported in this browser. Please use Chrome on Android.";
-        connectBtn.disabled = true;
+    // --- UI Logic ---
+
+    function renderDashboard(currentBytes = null) {
+        const grid = document.getElementById('dashboardGrid');
+        grid.innerHTML = '';
+        
+        const sensorKeys = Object.keys(savedConfig.sensors);
+        
+        if(sensorKeys.length === 0) {
+            document.getElementById('noDashMsg').classList.remove('hidden');
+            return;
+        }
+        document.getElementById('noDashMsg').classList.add('hidden');
+
+        sensorKeys.forEach(offset => {
+            const conf = savedConfig.sensors[offset];
+            let displayVal = "--";
+            let isAlarm = false;
+
+            if (currentBytes) {
+                // Extract Value
+                const idx = parseInt(offset);
+                if (idx + 1 < currentBytes.length) {
+                    const raw = currentBytes[idx] | (currentBytes[idx+1] << 8);
+                    
+                    // Handle "Data Not Available" (Victron uses 0x7FFF or 0xFFFF usually)
+                    if(raw !== 0xFFFF && raw !== 0x7FFF) {
+                        let val = (raw & 0xFFFF); 
+                        // Signed/Unsigned handling could go here, but usually 16bit unsigned is fine for SOC
+                        // If it's a signed int (like Current), we might need: if(val > 32767) val -= 65536;
+                        
+                        val = val * conf.scale;
+                        displayVal = val.toFixed(conf.scale < 0.1 ? 2 : 1);
+
+                        // Check Alarms
+                        if (conf.min !== "" && val < parseFloat(conf.min)) isAlarm = true;
+                        if (conf.max !== "" && val > parseFloat(conf.max)) isAlarm = true;
+                    }
+                }
+            }
+
+            if (isAlarm) triggerNotification(conf.name, displayVal);
+
+            const div = document.createElement('div');
+            div.className = `dash-card ${isAlarm ? 'alarm' : ''}`;
+            div.innerHTML = `
+                <button class="edit-btn" onclick="openEdit('${offset}')">⚙️</button>
+                <div class="label">${conf.name}</div>
+                <div class="value">${displayVal}</div>
+                <div class="unit">${conf.unit}</div>
+            `;
+            grid.appendChild(div);
+        });
     }
 
-    function log(msg) {
-        const d = new Date();
-        logBox.innerHTML = `[${d.toLocaleTimeString()}] ${msg}<br>` + logBox.innerHTML;
+    function renderDiagnostic(bytes) {
+        const list = document.getElementById('diagnosticList');
+        list.innerHTML = '';
+
+        // Victron usually packs data in 16-bit chunks.
+        // We will scan every EVEN byte offset (0, 2, 4, 6...) to reduce noise, 
+        // but you can change i+=2 to i++ if data is misaligned.
+        for (let i = 0; i < bytes.length - 1; i += 1) {
+            const raw = bytes[i] | (bytes[i+1] << 8);
+            
+            // Skip empty/max padding
+            if (raw === 0 || raw === 0xFFFF || raw === 0x7FFF) continue;
+
+            const is tracked = savedConfig.sensors.hasOwnProperty(i.toString());
+            
+            const row = document.createElement('div');
+            row.className = `diag-row ${is ? 'active' : ''}`;
+            row.innerHTML = `
+                <div class="diag-info">
+                    <div class="diag-offset">Byte Offset ${i}</div>
+                    <div class="diag-val">${raw} <span style="font-size:0.8rem; color:#666">(${(raw*0.1).toFixed(1)} / ${(raw*0.01).toFixed(2)})</span></div>
+                </div>
+                <div class="diag-actions">
+                    <button class="btn btn-primary btn-small" onclick="openEdit('${i}', ${raw})">
+                        ${is ? 'Edit' : 'Track'}
+                    </button>
+                </div>
+            `;
+            list.appendChild(row);
+        }
     }
+
+    // --- Modal & Config ---
+
+    window.openEdit = function(offset, currentRaw = 0) {
+        const conf = savedConfig.sensors[offset] || { name: "", scale: 1, unit: "", min: "", max: "" };
+        
+        document.getElementById('editOffset').value = offset;
+        document.getElementById('editName').value = conf.name;
+        document.getElementById('editScale').value = conf.scale;
+        document.getElementById('editUnit').value = conf.unit;
+        document.getElementById('editMin').value = conf.min;
+        document.getElementById('editMax').value = conf.max;
+        
+        document.getElementById('modalTitle').innerText = `Configure Offset ${offset} (Raw: ${currentRaw})`;
+        
+        // Guess defaults if new
+        if (!savedConfig.sensors[offset]) {
+            if (currentRaw > 1100 && currentRaw < 1500) { // Likely Voltage
+                document.getElementById('editName').value = "Voltage";
+                document.getElementById('editScale').value = "0.01";
+                document.getElementById('editUnit').value = "V";
+            } else if (currentRaw <= 1000 && currentRaw > 0) { // Likely SOC or Temp
+                document.getElementById('editName').value = "SOC";
+                document.getElementById('editScale').value = "0.1";
+                document.getElementById('editUnit').value = "%";
+            }
+        }
+
+        document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    window.closeModal = function() {
+        document.getElementById('editModal').classList.add('hidden');
+    }
+
+    document.getElementById('saveSensorBtn').addEventListener('click', () => {
+        const offset = document.getElementById('editOffset').value;
+        savedConfig.sensors[offset] = {
+            name: document.getElementById('editName').value || `Sensor ${offset}`,
+            scale: parseFloat(document.getElementById('editScale').value),
+            unit: document.getElementById('editUnit').value,
+            min: document.getElementById('editMin').value,
+            max: document.getElementById('editMax').value
+        };
+        saveConfig();
+        closeModal();
+        renderDashboard(); // Force refresh
+    });
+
+    document.getElementById('deleteSensorBtn').addEventListener('click', () => {
+        const offset = document.getElementById('editOffset').value;
+        delete savedConfig.sensors[offset];
+        saveConfig();
+        closeModal();
+        renderDashboard();
+    });
+
+    function saveConfig() {
+        savedConfig.key = document.getElementById('keyInput').value.trim();
+        localStorage.setItem('victron_config', JSON.stringify(savedConfig));
+    }
+
+    // --- Notification System ---
+    let lastNotifyTime = 0;
+    function triggerNotification(name, val) {
+        const now = Date.now();
+        if (now - lastNotifyTime > 60000) { // Limit to once per minute
+            if (Notification.permission === "granted") {
+                new Notification(`Alert: ${name}`, { body: `${name} is ${val}` });
+                if (navigator.vibrate) navigator.vibrate([200, 200, 200]);
+            }
+            lastNotifyTime = now;
+        }
+    }
+
+    // --- Bluetooth & Crypto (Core Logic) ---
 
     function hexToBytes(hex) {
         const bytes = [];
-        for (let c = 0; c < hex.length; c += 2)
-            bytes.push(parseInt(hex.substr(c, 2), 16));
+        for (let c = 0; c < hex.length; c += 2) bytes.push(parseInt(hex.substr(c, 2), 16));
         return new Uint8Array(bytes);
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+        const keyHex = document.getElementById('keyInput').value.trim();
+        if (keyHex.length !== 32) return alert("Invalid Key Length");
+        saveConfig();
+
+        // Req Permissions
+        if (Notification.permission !== "granted") Notification.requestPermission();
+
+        try {
+            // Crypto Setup
+            const keyBytes = hexToBytes(keyHex);
+            encryptionKey = await window.crypto.subtle.importKey("raw", keyBytes, { name: "AES-CTR" }, false, ["decrypt"]);
+
+            // BLE Setup
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: false,
+                filters: [{ namePrefix: 'Victron' }, { namePrefix: 'Smart' }, { namePrefix: 'Blue' }],
+                optionalManufacturerData: [VICTRON_ID]
+            });
+
+            document.getElementById('status').innerText = "Connected to " + device.name;
+            document.getElementById('connectionPanel').classList.add('hidden');
+            document.getElementById('dashboardSection').classList.remove('hidden');
+            document.getElementById('diagnosticSection').classList.remove('hidden');
+
+            renderDashboard(); // Initial empty render
+
+            device.addEventListener('advertisementreceived', async (event) => {
+                const victronData = event.manufacturerData.get(VICTRON_ID);
+                if (!victronData) return;
+                const data = new Uint8Array(victronData.buffer);
+                if (data[0] !== 0x10) return;
+
+                // Decrypt
+                const nonce = new Uint8Array(16);
+                nonce.set([data[1], data[2], data[3], 0x00, data[4], data[5]], 0);
+
+                try {
+                    const decryptedBuffer = await window.crypto.subtle.decrypt(
+                        { name: "AES-CTR", counter: nonce, length: 64 },
+                        encryptionKey,
+                        data.slice(7)
+                    );
+                    
+                    const decrypted = new Uint8Array(decryptedBuffer);
+                    
+                    // Update UI
+                    renderDashboard(decrypted);
+                    renderDiagnostic(decrypted);
+                    
+                } catch (e) { console.error(e); }
+            });
+
+            await device.watchAdvertisements();
+
+        } catch (err) {
+            alert("Connection Failed: " + err);
+            document.getElementById('status').innerText = "Error: " + err;
+        }
+    });
+</script>
+</body>
+</html>
+
     }
 
     document.getElementById('connectBtn').addEventListener('click', async () => {
