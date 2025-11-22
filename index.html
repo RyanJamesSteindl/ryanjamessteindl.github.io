@@ -12,8 +12,9 @@
         button { width: 100%; padding: 15px; background-color: #3498db; color: white; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; }
         button:disabled { background-color: #bdc3c7; }
         .soc-display { font-size: 3.5rem; font-weight: bold; margin: 30px 0; color: #27ae60; }
-        .log { font-size: 0.8rem; color: #7f8c8d; margin-top: 20px; text-align: left; height: 100px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 10px; }
+        .log { font-size: 0.8rem; color: #7f8c8d; margin-top: 20px; text-align: left; height: 150px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 10px; background: #f9f9f9; padding: 10px; }
         .status { font-weight: bold; margin-bottom: 10px; color: #e67e22; }
+        .warning { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; margin-bottom: 15px; display: none; font-size: 0.9rem; }
     </style>
 </head>
 <body>
@@ -21,12 +22,16 @@
 <div class="container">
     <h1>Victron Monitor</h1>
     
+    <div id="browserWarning" class="warning">
+        ⚠️ Your browser might not support Bluetooth Scanning. Please use <b>Google Chrome</b> and ensure "Experimental Web Platform features" is enabled in chrome://flags.
+    </div>
+
     <input type="text" id="keyInput" placeholder="Paste Encryption Key (Hex)" />
     <input type="number" id="limitInput" placeholder="Alert Limit % (e.g., 50)" value="50" />
     
-    <button id="connectBtn">Connect to Device</button>
+    <button id="connectBtn">Connect & Scan</button>
     
-    <div class="status" id="statusMsg">Ready to connect</div>
+    <div class="status" id="statusMsg">Ready</div>
     <div class="soc-display" id="socValue">--%</div>
     
     <div class="log" id="logBox"></div>
@@ -37,10 +42,20 @@
     let encryptionKey = null;
     let alertLimit = 50;
     let lastNotified = false;
+    let scanAbortController = null;
 
     const logBox = document.getElementById('logBox');
     const statusMsg = document.getElementById('statusMsg');
     const socValue = document.getElementById('socValue');
+    const connectBtn = document.getElementById('connectBtn');
+    const browserWarning = document.getElementById('browserWarning');
+
+    // Initial Compatibility Check
+    if (!navigator.bluetooth) {
+        browserWarning.style.display = 'block';
+        browserWarning.innerHTML = "❌ Web Bluetooth is not supported in this browser. Please use Chrome on Android.";
+        connectBtn.disabled = true;
+    }
 
     function log(msg) {
         const d = new Date();
@@ -48,7 +63,8 @@
     }
 
     function hexToBytes(hex) {
-        for (var bytes = [], c = 0; c < hex.length; c += 2)
+        const bytes = [];
+        for (let c = 0; c < hex.length; c += 2)
             bytes.push(parseInt(hex.substr(c, 2), 16));
         return new Uint8Array(bytes);
     }
@@ -64,8 +80,130 @@
 
         // Request Notification Permission
         if (Notification.permission !== "granted") {
-            await Notification.requestPermission();
+            try { await Notification.requestPermission(); } catch(e) {}
         }
+
+        try {
+            // Import Key
+            const keyBytes = hexToBytes(keyHex);
+            encryptionKey = await window.crypto.subtle.importKey(
+                "raw", keyBytes, { name: "AES-CTR" }, false, ["decrypt"]
+            );
+
+            statusMsg.innerText = "Requesting Device...";
+            
+            // 1. Request Device
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: false,
+                filters: [{ namePrefix: 'Victron' }, { namePrefix: 'Smart' }, { namePrefix: 'Blue' }],
+                optionalManufacturerData: [VICTRON_MANUFACTURER_ID]
+            });
+
+            log(`Selected: ${device.name}`);
+
+            // 2. Check for watchAdvertisements support
+            if (typeof device.watchAdvertisements !== 'function') {
+                log("ERROR: watchAdvertisements() missing.");
+                alert("Your browser does not support 'watchAdvertisements'.\n\n1. Open chrome://flags\n2. Enable 'Experimental Web Platform features'\n3. Relaunch Chrome.");
+                return;
+            }
+
+            // 3. Setup Listener
+            scanAbortController = new AbortController();
+            device.addEventListener('advertisementreceived', (event) => {
+                handleAdvertisement(event);
+            });
+
+            // 4. Start Watching
+            await device.watchAdvertisements({ signal: scanAbortController.signal });
+            statusMsg.innerText = "Scanning Active...";
+            log("Started watching advertisements.");
+
+        } catch (error) {
+            log("Error: " + error);
+            statusMsg.innerText = "Failed.";
+        }
+    });
+
+    async function handleAdvertisement(event) {
+        const manufacturerData = event.manufacturerData;
+        if (!manufacturerData) return;
+
+        const victronData = manufacturerData.get(VICTRON_MANUFACTURER_ID);
+        if (!victronData) return;
+
+        const data = new Uint8Array(victronData.buffer);
+
+        // 0x10 indicates encrypted data
+        if (data[0] !== 0x10) return;
+
+        try {
+            await decryptAndParse(data);
+        } catch (e) {
+            // silent fail on decrypt error to avoid log spam
+        }
+    }
+
+    async function decryptAndParse(data) {
+        // Construct Nonce
+        const nonce = new Uint8Array(16);
+        nonce[0] = data[1]; // Model L
+        nonce[1] = data[2]; // Model H
+        nonce[2] = data[3]; // Readout Type
+        nonce[3] = 0x00;    
+        nonce[4] = data[4]; // IV L
+        nonce[5] = data[5]; // IV H
+
+        const encryptedPayload = data.slice(7); 
+
+        const decryptedBuffer = await window.crypto.subtle.decrypt(
+            { name: "AES-CTR", counter: nonce, length: 64 },
+            encryptionKey,
+            encryptedPayload
+        );
+
+        const decrypted = new Uint8Array(decryptedBuffer);
+        
+        // SmartShunt/BMV usually has SOC at byte 12 (little endian)
+        if (decrypted.length < 14) return;
+
+        let socRaw = decrypted[12] | (decrypted[13] << 8);
+        
+        // 0x7FFF is "Data not available"
+        if (socRaw === 0x7FFF || socRaw === 0xFFFF) return;
+
+        let soc = (socRaw & 0x3FFF) * 0.1; 
+        // Fix float precision (e.g., 99.90000001 -> 99.9)
+        let socFixed = Math.round(soc * 10) / 10;
+
+        socValue.innerText = `${socFixed}%`;
+        statusMsg.innerText = "Monitoring...";
+        
+        // Handle Alert
+        if (soc < alertLimit && !lastNotified) {
+            sendNotification(socFixed);
+            lastNotified = true;
+        } else if (soc > parseFloat(alertLimit) + 5) {
+            lastNotified = false;
+        }
+    }
+
+    function sendNotification(val) {
+        log(`ALERT: SOC is ${val}%`);
+        if (Notification.permission === "granted") {
+            new Notification("Battery Alert", {
+                body: `Battery is at ${val}%`,
+                icon: "https://via.placeholder.com/128/ff0000/ffffff?text=!"
+            });
+            if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+        } else {
+            alert(`BATTERY LOW: ${val}%`);
+        }
+    }
+</script>
+
+</body>
+</html>
 
         try {
             // Import Key for Crypto
