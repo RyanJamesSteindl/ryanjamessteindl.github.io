@@ -91,11 +91,13 @@
 
 <script>
     // --- Application Constants ---
-    const APP_VERSION = "6.0.0";
+    const APP_VERSION = "6.0.1";
+    // Victron Manufacturer ID (Crucial for filtering)
+    const VICTRON_MANUFACTURER_ID = 0x02E1; 
+    // Victron Service UUIDs (used after device selection)
     const VICTRON_SERVICE_UUID = "0000a000-0000-1000-8000-00805f9b34fb";
     const WRITE_CHARACTERISTIC_UUID = "0000a001-0000-1000-8000-00805f9b34fb";
     const NOTIFY_CHARACTERISTIC_UUID = "0000a002-0000-1000-8000-00805f9b34fb";
-    const MAX_VE_DIRECT_PAYLOAD = 18; // 16 bytes payload + 2 bytes CRC
 
     // --- State Variables ---
     let device = null;
@@ -114,22 +116,6 @@
 
     // --- Utility Functions (AES, Hex, Base64) ---
 
-    /** Converts a Base64 string to an ArrayBuffer. */
-    function base64ToArrayBuffer(base64) {
-        const binaryString = atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-    }
-
-    /** Converts an ArrayBuffer to a Hex string. */
-    function bufferToHex(buffer) {
-        return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
-    }
-
     /** Generates an AES-128 key from the 32-character hex key string. */
     async function generateCryptoKey(hexKey) {
         if (hexKey.length !== 32) {
@@ -147,11 +133,8 @@
 
     /** Decrypts a Victron notification payload (16 bytes). */
     async function decryptPayload(encryptedBuffer, key) {
-        // IV is always the first 16 bytes of the *encrypted* data in AES-CBC mode, but here, 
-        // the Victron protocol seems to use a static or derived IV.
-        // For simplicity and adherence to common Victron implementations:
-        // Assume IV is 16 zero bytes (00 * 16) for AES-128-CBC.
-        const iv = new Uint8Array(16); // All zeros
+        // IV is always 16 zero bytes for the Victron AES-128-CBC implementation
+        const iv = new Uint8Array(16); 
         
         try {
             const decryptedBuffer = await window.crypto.subtle.decrypt(
@@ -168,22 +151,9 @@
 
     // --- VE.Direct Protocol Parsing ---
 
-    /** Calculates the CRC checksum for a VE.Direct frame payload. */
-    function calculateCRC(buffer) {
-        let crc = 0;
-        for (let i = 0; i < buffer.byteLength; i++) {
-            crc = (crc + buffer[i]) & 0xFF;
-        }
-        return (256 - crc) & 0xFF; // Two's complement of the sum of all bytes
-    }
-
-    /** Parses a single VE.Direct data frame. */
+    /** Parses a single VE.Direct data frame (abbreviated for size). */
     function parseVeDirectFrame(data) {
-        const frame = new DataView(data.buffer, data.byteOffset, data.byteLength);
         const records = {};
-        
-        // VE.Direct frames are key/value pairs (Label:Value)
-        // We look for 0x0D 0x0A (CR LF) to separate records and 0x09 (TAB) to separate key and value.
         const textDecoder = new TextDecoder('utf-8');
         const text = textDecoder.decode(data);
         const lines = text.split('\r\n').filter(line => line.includes('\t'));
@@ -204,13 +174,14 @@
 
     /** Updates the main metrics display cards. */
     function updateMetricsDisplay(records) {
+        // Mappings defined for common VE.Direct labels
         const mappings = {
             'V': { unit: 'V', factor: 1000 },
             'I': { unit: 'A', factor: 1000 },
             'P': { unit: 'W', factor: 1 },
             'SOC': { unit: '%', factor: 10 },
-            'T': { unit: 'C', factor: 100 }, // Battery temperature
-            'H19': { unit: 'kWh', factor: 100 }, // Total Yield Today
+            'T': { unit: 'C', factor: 100 }, 
+            'H19': { unit: 'kWh', factor: 100 }, 
         };
 
         let isDataPresent = false;
@@ -222,26 +193,15 @@
                 const rawValue = parseInt(records[key], 10);
                 let displayValue;
                 
-                if (key === 'T') {
-                    // Temperature is 0.01 C, convert to C
-                    displayValue = (rawValue / map.factor).toFixed(1);
-                } else if (key === 'SOC') {
-                    // SOC is 0.1%, convert to %
-                    displayValue = (rawValue / map.factor).toFixed(1);
-                } else if (key === 'H19') {
-                    // Yield is 0.01 kWh, convert to kWh
-                    displayValue = (rawValue / map.factor).toFixed(2);
-                } else {
-                    // V and I are 0.001 units
-                    displayValue = (rawValue / map.factor).toFixed(2);
-                }
+                // Determine factor based on common Victron scaling
+                const factor = map.factor;
+                displayValue = (rawValue / factor).toFixed(key === 'SOC' || key === 'T' ? 1 : 2);
                 
                 el.querySelector('.data-value').innerText = `${displayValue} ${map.unit}`;
             }
         }
         
         if (isDataPresent) {
-            // Add a streaming pulse effect
             metricsDisplay.classList.add('streaming-indicator');
             setTimeout(() => {
                 metricsDisplay.classList.remove('streaming-indicator');
@@ -269,17 +229,13 @@
             // 3. Check for the VE.Direct end-of-frame marker (CR LF CR LF)
             const endMarker = new Uint8Array([0x0D, 0x0A, 0x0D, 0x0A]);
             
-            // This is complex: we must search for the end marker and handle potential partial frames.
-            const frameIndex = veDirectBuffer.findIndex((byte, i) => 
-                i >= 3 && 
-                byte === endMarker[3] && 
-                veDirectBuffer[i-1] === endMarker[2] && 
-                veDirectBuffer[i-2] === endMarker[1] && 
-                veDirectBuffer[i-3] === endMarker[0]
-            );
+            // Search for the end marker
+            const fullText = new TextDecoder().decode(veDirectBuffer);
+            const frameIndex = fullText.indexOf('\r\n\r\n');
 
             if (frameIndex !== -1) {
-                const frameEnd = frameIndex + 1; // End of the full frame
+                // The frame ends AFTER the marker (4 bytes)
+                const frameEnd = frameIndex + 4; 
                 const fullFrame = veDirectBuffer.slice(0, frameEnd);
                 
                 // Process the complete frame
@@ -293,7 +249,6 @@
         } catch (error) {
             console.error("Error processing data stream:", error.message);
             updateStatus(`Data Error: ${error.message}`, 'error');
-            // If decryption fails repeatedly, you might want to disconnect.
         }
     }
 
@@ -301,7 +256,7 @@
 
     /** Sets the UI status message. */
     function updateStatus(message, type = 'disconnected') {
-        statusDisplay.innerText = `Status: ${message}`;
+        statusDisplay.innerText = `Status (v${APP_VERSION}): ${message}`;
         statusDisplay.className = 'status-box'; // Reset classes
 
         if (type === 'connecting') {
@@ -334,16 +289,14 @@
             return;
         }
 
-        updateStatus("Starting notifications...", 'connecting');
+        updateStatus("Starting notifications and sending initialization command...", 'connecting');
 
-        // Set up the listener
         notifyCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
         
-        // Start the notifications
         await notifyCharacteristic.startNotifications();
         
-        // Send the initial command to request data (The Victron dongle needs a command to start sending data)
-        const commandText = "AT+OK\r\n"; // Common initialization command
+        // Send the initialization command (AT+OK\r\n) to trigger data flow
+        const commandText = "AT+OK\r\n";
         const encoder = new TextEncoder();
         const commandBuffer = encoder.encode(commandText);
         
@@ -353,7 +306,7 @@
     }
 
     /** Handles the main connection workflow. */
-    async function handleConnect() {
+    window.handleConnect = async function() {
         if (!navigator.bluetooth) {
             updateStatus("Web Bluetooth not supported in this browser/environment.", 'error');
             return;
@@ -373,11 +326,18 @@
             return;
         }
 
-        updateStatus("Requesting device...", 'connecting');
+        updateStatus("Searching for Victron devices...", 'connecting');
         
         try {
+            // --- CRITICAL CHANGE: FILTER BY MANUFACTURER DATA ---
             device = await navigator.bluetooth.requestDevice({
-                filters: [{ services: [VICTRON_SERVICE_UUID] }]
+                acceptAllDevices: true,
+                optionalServices: [VICTRON_SERVICE_UUID], // Use optional services if the device is found
+                filters: [{
+                    manufacturerData: [{
+                        companyIdentifier: VICTRON_MANUFACTURER_ID
+                    }]
+                }]
             });
 
             device.addEventListener('gattserverdisconnected', handleDisconnect);
@@ -392,27 +352,33 @@
             notifyCharacteristic = await service.getCharacteristic(NOTIFY_CHARACTERISTIC_UUID);
             writeCharacteristic = await service.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
 
-            // Once all setup is complete, start the monitoring loop
             await startMonitoring();
 
         } catch (error) {
             console.error("Connection Error:", error);
-            updateStatus(`Connection Failed: ${error.message || 'Unknown error'}`, 'error');
-            // Ensure state is clean on failure
+            let message = error.message || 'Unknown error';
+            
+            if (error.name === 'NotFoundError') {
+                message = "Search canceled or no Victron devices found nearby.";
+            } else if (error.name === 'SecurityError') {
+                 message = "Security Error: Ensure Location/Bluetooth is ON and you are using HTTPS.";
+            } else if (message.includes('No Services with UUID')) {
+                 message = "Device found but required Victron service is unavailable. Check permissions.";
+            }
+
+            updateStatus(`Connection Failed: ${message}`, 'error');
             handleDisconnect(true); 
         }
     }
 
     /** Handles device disconnection. */
-    function handleDisconnect(silent = false) {
-        if (device && device.gatt.connected) {
+    window.handleDisconnect = function(silent = false) {
+        if (device && device.gatt && device.gatt.connected) {
             device.gatt.disconnect();
         }
         
         if (notifyCharacteristic) {
             notifyCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
-            // Optional: try to stop notifications, but often disconnect handles this
-            try { notifyCharacteristic.stopNotifications(); } catch(e) { console.warn("Could not stop notifications cleanly:", e); }
         }
 
         device = null;
@@ -432,12 +398,19 @@
 
     // Initialize state on load
     window.onload = () => {
-        updateStatus("Ready to connect (v" + APP_VERSION + ")");
-        document.getElementById('disconnectBtn').addEventListener('click', () => handleDisconnect(false));
+        updateStatus("Ready to connect");
+        // Pre-fill key from last session if available
+        const savedKey = localStorage.getItem('victron_key');
+        if (savedKey) keyInput.value = savedKey;
+        
+        // Save key on input change
+        keyInput.addEventListener('input', () => {
+            localStorage.setItem('victron_key', keyInput.value.trim());
+        });
     };
 
     // Global cleanup handler (optional but good practice)
-    window.onbeforeunload = handleDisconnect;
+    window.onbeforeunload = window.handleDisconnect;
 
 </script>
 </body>
