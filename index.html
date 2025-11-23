@@ -91,14 +91,16 @@
 
 <script>
     // --- Application Constants ---
-    const APP_VERSION = "7.0.2";
+    const APP_VERSION = "8.0.0";
     // Victron Manufacturer ID
     const VICTRON_MANUFACTURER_ID = 0x02E1; 
+    
     // Victron Service and Characteristic UUIDs
-    const VICTRON_SERVICE_UUID = "0000a000-0000-1000-8000-00805f9b34fb";
+    const VICTRON_DATA_SERVICE_UUID = "0000a000-0000-1000-8000-00805f9b34fb"; // Data service (Hidden until Auth)
+    const VICTRON_SETUP_SERVICE_UUID = "0000a003-0000-1000-8000-00805f9b34fb"; // Setup service (Visible pre-Auth)
+    
     const WRITE_CHARACTERISTIC_UUID = "0000a001-0000-1000-8000-00805f9b34fb";
     const NOTIFY_CHARACTERISTIC_UUID = "0000a002-0000-1000-8000-00805f9b34fb";
-    // Characteristic to send the encryption key to
     const AUTH_CHARACTERISTIC_UUID = "0000a004-0000-1000-8000-00805f9b34fb"; 
 
     // --- State Variables ---
@@ -247,37 +249,35 @@
         }
     }
     
-    /** Writes the encryption key to the authentication characteristic. */
+    /** Writes the encryption key to the authentication characteristic on the SETUP SERVICE (a003). */
     async function authenticateDevice() {
         if (!server) throw new Error("GATT Server not connected.");
         
-        updateStatus("Authenticating device...", 'connecting');
+        updateStatus("Authenticating device via Setup Service...", 'connecting');
 
         try {
-            // 1. Get the authentication characteristic
-            const authService = await server.getPrimaryService(VICTRON_SERVICE_UUID);
-            const authCharacteristic = await authService.getCharacteristic(AUTH_CHARACTERISTIC_UUID);
+            // CRITICAL CHANGE: Get the SETUP service (a003) FIRST.
+            const setupService = await server.getPrimaryService(VICTRON_SETUP_SERVICE_UUID);
+            
+            // Get the AUTH characteristic (a004) from the setup service
+            const authCharacteristic = await setupService.getCharacteristic(AUTH_CHARACTERISTIC_UUID);
 
-            // 2. Prepare the 16 bytes key
+            // Prepare the 16 bytes key
             const hexKey = keyInput.value.trim().toUpperCase();
             const keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
             
-            // 3. Write the key
+            // Write the key
             await authCharacteristic.writeValue(keyBytes);
 
-            updateStatus("Authentication successful.", 'connecting');
+            updateStatus("Key accepted. Data Service should now be unlocked.", 'connecting');
 
         } catch (error) {
-            // Check for specific error types to provide better diagnostics
+            // Provide specific diagnostics for key write failure
             if (error.name === 'NotFoundError') {
-                if (error.message.includes(AUTH_CHARACTERISTIC_UUID.toUpperCase())) {
-                    throw new Error("Authentication Characteristic (a004) not found on device.");
-                } else if (error.message.includes(VICTRON_SERVICE_UUID.toUpperCase())) {
-                    throw new Error("Victron Service (a000) not found (requires key to be written to a different service).");
-                }
+                throw new Error("Setup Service (a003) or Auth Characteristic (a004) not found. Device may be too old or not require this auth method.");
+            } else {
+                throw new Error(`Key Write Failed: ${error.message}. Check key accuracy.`);
             }
-            // Generic write failure (usually key rejection)
-            throw new Error(`Key Write Failed: ${error.message}`);
         }
     }
 
@@ -312,9 +312,14 @@
     }
 
     /** Starts monitoring the notification characteristic. */
-    async function startMonitoring() {
+    async function startMonitoring(dataService) {
+        // Step 1: Get the data characteristics from the now-unlocked data service (a000)
+        updateStatus("Getting data characteristics...", 'connecting');
+        notifyCharacteristic = await dataService.getCharacteristic(NOTIFY_CHARACTERISTIC_UUID);
+        writeCharacteristic = await dataService.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
+
         if (!notifyCharacteristic) {
-            updateStatus("Notification characteristic not found.", 'error');
+            updateStatus("Notification characteristic (a002) not found.", 'error');
             return;
         }
 
@@ -324,7 +329,7 @@
         
         await notifyCharacteristic.startNotifications();
         
-        // Send the initialization command (AT+OK\r\n) to trigger data flow
+        // Step 2: Send the initialization command (AT+OK\r\n) to trigger data flow
         const commandText = "AT+OK\r\n";
         const encoder = new TextEncoder();
         const commandBuffer = encoder.encode(commandText);
@@ -358,9 +363,9 @@
         updateStatus("Searching for Victron devices...", 'connecting');
         
         try {
-            // 1. Request device using the strict manufacturer filter
+            // 1. Request device, ensuring both setup (a003) and data (a000) services are requested
             device = await navigator.bluetooth.requestDevice({
-                optionalServices: [VICTRON_SERVICE_UUID], 
+                optionalServices: [VICTRON_DATA_SERVICE_UUID, VICTRON_SETUP_SERVICE_UUID], 
                 filters: [{
                     manufacturerData: [{
                         companyIdentifier: VICTRON_MANUFACTURER_ID
@@ -373,19 +378,15 @@
             updateStatus(`Connecting to ${device.name}...`, 'connecting');
             server = await device.gatt.connect(); 
 
-            // 2. AUTHENTICATE DEVICE IMMEDIATELY
+            // 2. AUTHENTICATE DEVICE (using the visible a003 service)
             await authenticateDevice(); 
             
-            // 3. Get the data service and characteristics
-            updateStatus("Getting data service...", 'connecting');
-            const service = await server.getPrimaryService(VICTRON_SERVICE_UUID);
-
-            updateStatus("Getting data characteristics...", 'connecting');
-            notifyCharacteristic = await service.getCharacteristic(NOTIFY_CHARACTERISTIC_UUID);
-            writeCharacteristic = await service.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
+            // 3. Get the DATA service (a000), which should now be unlocked
+            updateStatus("Getting unlocked Data Service (a000)...", 'connecting');
+            const dataService = await server.getPrimaryService(VICTRON_DATA_SERVICE_UUID);
 
             // 4. Start the stream
-            await startMonitoring();
+            await startMonitoring(dataService);
 
         } catch (error) {
             console.error("Connection Error:", error);
@@ -396,15 +397,10 @@
             } else if (error.name === 'SecurityError') {
                  message = "Security Error: Ensure Location/Bluetooth is ON and you are using HTTPS.";
             } else if (message.includes('No Services with UUID')) {
-                 message = "Device found but required Victron service is unavailable. Check device power/range.";
-            } else if (message.includes('GATT operation failed for unknown reason')) {
-                 message = "Authentication or GATT service access failed. Verify device key or retry.";
-            } else if (message.includes('Authentication Characteristic')) {
-                 message = `Auth Failed: ${message}`;
-            } else if (message.includes('Victron Service')) {
-                 message = `Auth Failed: ${message}`;
-            } else if (message.includes('Key Write Failed')) {
-                 message = `Auth Failed: ${message}. Check key accuracy.`;
+                 // If a000 is still missing after auth, the key may be wrong or rejected.
+                 message = "Data Service (a000) still unavailable. Authentication rejected key or device is locked.";
+            } else if (message.includes('Auth Failed')) {
+                 message = `${message}`;
             }
 
             updateStatus(`Connection Failed: ${message}`, 'error');
