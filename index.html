@@ -105,7 +105,7 @@
         <div class="modal">
             <h3>Configure Sensor</h3>
             <input type="hidden" id="editOffset">
-            <input type="hidden" id="editRawU">
+            <input type="hidden" id="editRecordType">
             <div class="form-group"><label>Name</label><input type="text" id="editName"></div>
             <div class="form-group">
                 <label>Scale</label>
@@ -137,7 +137,6 @@
     if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
 
     // --- VICTRON PROTOCOL MEMORY MAPS ---
-    // scale: negative values indicate a signed integer should be used (e.g., -0.001 for current)
     const KNOWN_LAYOUTS = {
         // Record Type 0x01: MPPT Solar Charger / SmartSolar (Main Data)
         1: [
@@ -196,6 +195,7 @@
         const selectedProfile = document.getElementById('deviceProfile').value;
         if (selectedProfile === "ALL") {
             const keys = Object.keys(dataBuffer);
+            // Return the most recently received packet for 'ALL'
             if (keys.length > 0) return dataBuffer[keys[keys.length - 1]];
             return null;
         }
@@ -232,7 +232,8 @@
                 if(rawU !== 0xFFFF && rawU !== 0x7FFF) {
                     const val = calculateScaledValue(rawU, conf.scale);
 
-                    display = val.toFixed(Math.abs(conf.scale) < 0.1 ? 3 : 2);
+                    // Display up to 3 decimal places for high precision, otherwise 2
+                    display = val.toFixed(Math.abs(conf.scale) < 0.01 ? 3 : 2); 
                     
                     // Alarms
                     if (conf.min !== "" && val < parseFloat(conf.min)) isAlarm = true;
@@ -277,15 +278,16 @@
             const mapEntry = layout.find(entry => entry.offset === i);
             let nameHtml = '';
             let valHtml = `${rawU} <span style="font-size:0.8rem;color:#666">Signed: ${rawS}</span>`;
-            let trackParams = `${i}, ${rawU}`;
+            
+            // Pass ONLY offset and recordType to openEdit, which is safer
+            const trackParams = `${i}, ${recordType}`;
 
             if (mapEntry) {
                 const scaledVal = calculateScaledValue(rawU, mapEntry.scale);
-                const displayVal = scaledVal.toFixed(Math.abs(mapEntry.scale) < 0.1 ? 3 : 2);
+                const displayVal = scaledVal.toFixed(Math.abs(mapEntry.scale) < 0.01 ? 3 : 2);
                 
                 nameHtml = `<div class="diag-name">${mapEntry.name}</div>`;
                 valHtml = `${displayVal} ${mapEntry.unit} <span style="font-size:0.75rem; color:#666; font-weight:normal;">(Raw: ${rawU})</span>`;
-                trackParams = `${i}, ${rawU}, '${mapEntry.name}', ${mapEntry.scale}, '${mapEntry.unit}'`;
             }
 
             const row = document.createElement('div');
@@ -320,13 +322,33 @@
         renderUI();
     }
 
-    // --- Config Modal ---
-    window.openEdit = function(offset, rawU, guessName = '', guessScale = 0.1, guessUnit = '') {
-        const conf = savedConfig.sensors[offset] || { name: guessName, scale: guessScale, unit: guessUnit, min: "", max: "" };
+    // --- Config Modal (Now smarter about defaults) ---
+    window.openEdit = function(offset, recordType) {
+        const offsetKey = offset.toString();
+        let conf = savedConfig.sensors[offsetKey];
         
+        // Find map defaults if config doesn't exist
+        if (!conf && KNOWN_LAYOUTS[recordType]) {
+            const mapEntry = KNOWN_LAYOUTS[recordType].find(entry => entry.offset === offset);
+            if (mapEntry) {
+                conf = { 
+                    name: mapEntry.name, 
+                    scale: mapEntry.scale, 
+                    unit: mapEntry.unit, 
+                    min: "", 
+                    max: "" 
+                };
+            }
+        }
+
+        // Fallback default if not in saved config or map
+        if (!conf) {
+             conf = { name: `Offset ${offset}`, scale: 0.1, unit: "", min: "", max: "" };
+        }
+
         // Populate modal fields
-        document.getElementById('editOffset').value = offset;
-        document.getElementById('editRawU').value = rawU;
+        document.getElementById('editOffset').value = offsetKey;
+        document.getElementById('editRecordType').value = recordType;
         document.getElementById('editName').value = conf.name;
         document.getElementById('editScale').value = conf.scale;
         document.getElementById('editUnit').value = conf.unit;
@@ -372,19 +394,4 @@
         if (keyHex.length !== 32) return alert("Invalid Key");
         
         savedConfig.key = keyHex;
-        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
-        
-        if (Notification.permission !== "granted") Notification.requestPermission();
-
-        try {
-            const keyBytes = hexToBytes(keyHex);
-            encryptionKey = await window.crypto.subtle.importKey("raw", keyBytes, { name: "AES-CTR" }, false, ["decrypt"]);
-            
-            const device = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: false,
-                filters: [{ namePrefix: 'Victron' }, { namePrefix: 'Smart' }, { namePrefix: 'Blue' }],
-                optionalManufacturerData: [VICTRON_ID]
-            });
-
-            if (typeof device.watchAdvertisements !== 'function') {
-                alert("Update C
+        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConf
