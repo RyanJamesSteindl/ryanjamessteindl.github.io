@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Victron Smart Dashboard</title>
+    <title>Victron Mapped Dashboard</title>
     <style>
-        :root { --bg: #121212; --card-bg: #1e1e1e; --text: #e0e0e0; --accent: #00d2ff; --danger: #ff4444; --success: #00c851; --warning: #ffbb33; }
+        :root { --bg: #121212; --card-bg: #1e1e1e; --text: #e0e0e0; --accent: #00d2ff; --danger: #ff4444; --success: #00c851; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-bottom: 100px;}
         
         /* Utility */
@@ -16,37 +16,33 @@
         .btn-secondary { background-color: #333; color: #fff; border: 1px solid #555; }
         input, select { background: #333; border: 1px solid #555; color: white; padding: 12px; border-radius: 8px; width: 100%; box-sizing: border-box; margin-bottom: 10px; font-size: 1rem; }
 
-        /* Header & Status */
-        #status { padding: 10px; border-radius: 8px; background: #1a1a1a; color: #888; font-size: 0.9rem; margin-bottom: 15px; border: 1px solid #333; text-align: center; }
-        #status.connected { color: var(--success); border-color: var(--success); background: rgba(0, 200, 81, 0.1); }
-        #status.error { color: var(--danger); border-color: var(--danger); background: rgba(255, 68, 68, 0.1); }
+        /* Device Selector */
+        .device-select-container { background: #252525; padding: 15px; border-radius: 12px; border: 1px solid #444; margin-bottom: 20px; }
+        .device-select-label { font-size: 0.8rem; color: #aaa; margin-bottom: 5px; display: block; }
+        select#deviceProfile { background-color: #000; border-color: var(--accent); color: var(--accent); font-weight: bold; }
 
         /* Dashboard Grid */
-        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 30px; color: var(--accent); font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
-        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; margin-bottom: 30px; }
         .dash-card { background: var(--card-bg); padding: 15px; border-radius: 12px; text-align: center; position: relative; border: 1px solid #333; }
         .dash-card.alarm { border-color: var(--danger); background: rgba(255, 68, 68, 0.1); animation: pulse 1s infinite; }
         .dash-card .label { font-size: 0.8rem; color: #aaa; margin-bottom: 5px; text-transform: uppercase; }
-        .dash-card .value { font-size: 2rem; font-weight: bold; }
+        .dash-card .value { font-size: 1.8rem; font-weight: bold; }
         .dash-card .unit { font-size: 0.9rem; color: #888; }
         .dash-card .edit-btn { position: absolute; top: 5px; right: 5px; background: none; border: none; color: #555; cursor: pointer; font-size: 1.2rem; padding: 5px; }
 
-        /* Smart Diagnostic List */
+        /* Diagnostic */
+        .diag-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .current-record-type { font-family: monospace; background: #333; padding: 2px 6px; border-radius: 4px; color: #fff; font-size: 0.8rem; }
         .diag-list { display: flex; flex-direction: column; gap: 8px; }
         .diag-row { background: var(--card-bg); padding: 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #333; }
         .diag-row.active { border-left-color: var(--success); background: #252525; }
         .diag-info { flex-grow: 1; }
         .diag-offset { font-family: monospace; color: #666; font-size: 0.75rem; margin-bottom: 2px; }
-        
-        .diag-guess { font-size: 0.8rem; color: var(--warning); font-weight: bold; margin-bottom: 2px; }
-        
         .diag-val { font-family: monospace; font-size: 1.1rem; font-weight: bold; color: var(--accent); }
-        .diag-preview { font-size: 0.8rem; color: #888; margin-left: 8px; font-weight: normal; }
-        .btn-small { padding: 6px 12px; font-size: 0.85rem; width: auto; margin: 0; }
 
         /* Modal */
         .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.8); z-index: 100; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
-        .modal { background: #222; padding: 25px; border-radius: 16px; width: 90%; max-width: 350px; border: 1px solid #444; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .modal { background: #222; padding: 25px; border-radius: 16px; width: 90%; max-width: 350px; border: 1px solid #444; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.85rem; }
 
@@ -55,60 +51,71 @@
 </head>
 <body>
 
-    <div id="status">Ready to connect</div>
+    <div id="status" style="text-align:center; color:#888; margin-bottom:10px;">Ready</div>
 
+    <!-- Connect Panel -->
     <div id="connectionPanel">
-        <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key Here" />
-        <button id="connectBtn" class="btn btn-primary">Start Scanning</button>
+        <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key" />
+        <button id="connectBtn" class="btn btn-primary">Connect</button>
         <div style="text-align:center; font-size:0.8rem; color:#555;">Chrome on Android Required</div>
     </div>
 
-    <div id="connectedControls" class="hidden">
-        <button id="disconnectBtn" class="btn btn-secondary" onclick="location.reload()">Disconnect</button>
-    </div>
-
-    <div id="dashboardSection" class="hidden">
-        <h2>Dashboard</h2>
-        <div id="dashboardGrid" class="dashboard-grid"></div>
-        <div id="noDashMsg" style="text-align:center; color: #555; padding: 20px; border: 1px dashed #333; border-radius: 8px;">
-            No sensors pinned.<br>Select data from the stream below.
+    <!-- Main App (Hidden until connected) -->
+    <div id="appInterface" class="hidden">
+        
+        <!-- Device Selector / Filter -->
+        <div class="device-select-container">
+            <label class="device-select-label">Select Memory Map (Fixes Jumping Data)</label>
+            <select id="deviceProfile">
+                <option value="ALL">Diagnostic (Show All Raw Data)</option>
+                <option value="0x01">Solar Charger (MPPT)</option>
+                <option value="0x02">SmartShunt / BMV-712</option>
+                <option value="0x03">Inverter</option>
+                <option value="0x08">DC-DC Converter / Orion</option>
+                <option value="0xD5">SmartShunt (Alt Firmware)</option>
+            </select>
+            <button id="disconnectBtn" class="btn btn-secondary" style="margin-top:10px;">Disconnect</button>
         </div>
-    </div>
 
-    <div id="diagnosticSection" class="hidden">
-        <h2>Smart Data Stream</h2>
-        <p style="font-size: 0.85rem; color: #888; margin-bottom: 15px;">
-            We are analyzing the data stream to identify your sensors automatically.
-        </p>
-        <div id="diagnosticList" class="diag-list"></div>
+        <!-- Dashboard -->
+        <div id="dashboardSection">
+            <h2>Dashboard</h2>
+            <div id="dashboardGrid" class="dashboard-grid"></div>
+            <div id="noDashMsg" style="text-align:center; color: #555; padding: 20px; border: 1px dashed #333; border-radius: 8px;">
+                No sensors pinned.<br>Scroll down to diagnostic stream.
+            </div>
+        </div>
+
+        <!-- Stream -->
+        <div id="diagnosticSection">
+            <div class="diag-header">
+                <h2>Data Stream</h2>
+                <div id="recTypeDisplay" class="current-record-type">Waiting...</div>
+            </div>
+            <div id="diagnosticList" class="diag-list"></div>
+        </div>
     </div>
 
     <!-- Edit Modal -->
     <div id="editModal" class="modal-overlay hidden">
         <div class="modal">
-            <h3 id="modalTitle">Configure Sensor</h3>
+            <h3>Configure Sensor</h3>
             <input type="hidden" id="editOffset">
+            <div class="form-group"><label>Name</label><input type="text" id="editName"></div>
             <div class="form-group">
-                <label>Display Name</label>
-                <input type="text" id="editName">
-            </div>
-            <div class="form-group">
-                <label>Scale & Type</label>
+                <label>Scale</label>
                 <select id="editScale">
-                    <option value="0.1">x0.1 (Unsigned - SOC, Temp)</option>
-                    <option value="0.01">x0.01 (Unsigned - Voltage)</option>
-                    <option value="-0.001">x0.001 (Signed - Current)</option>
-                    <option value="-0.1">x0.1 (Signed - Temperature)</option>
+                    <option value="0.1">x0.1 (SOC, Temp)</option>
+                    <option value="0.01">x0.01 (Voltage)</option>
+                    <option value="-0.001">x0.001 (Signed Current A)</option>
+                    <option value="-0.1">x0.1 (Signed Current/Temp)</option>
                     <option value="1">x1 (Raw)</option>
                 </select>
             </div>
-            <div class="form-group">
-                <label>Unit Label</label>
-                <input type="text" id="editUnit">
-            </div>
+            <div class="form-group"><label>Unit</label><input type="text" id="editUnit"></div>
             <div style="display:flex; gap:10px;">
-                <div class="form-group" style="flex:1"><label>Low Alarm</label><input type="number" id="editMin"></div>
-                <div class="form-group" style="flex:1"><label>High Alarm</label><input type="number" id="editMax"></div>
+                <div class="form-group" style="flex:1"><label>Min Alarm</label><input type="number" id="editMin"></div>
+                <div class="form-group" style="flex:1"><label>Max Alarm</label><input type="number" id="editMax"></div>
             </div>
             <button id="saveSensorBtn" class="btn btn-primary">Save</button>
             <button id="deleteSensorBtn" class="btn btn-danger">Remove</button>
@@ -119,54 +126,16 @@
 <script>
     const VICTRON_ID = 0x02E1;
     let encryptionKey = null;
-    let savedConfig = JSON.parse(localStorage.getItem('victron_smart_config')) || { key: "", sensors: {} };
-
+    let savedConfig = JSON.parse(localStorage.getItem('victron_mapped_config')) || { key: "", sensors: {} };
     if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
 
-    // --- VICTRON DICTIONARY ---
-    // Known offsets for the most common devices (SmartShunt/BMV/MPPT)
-    // Offsets are based on the decrypted payload bytes
-    const KNOWN_LAYOUTS = {
-        // Generic Heuristics to match fields based on Offset
-        // SmartShunt (0x02 Record Type usually)
-        2: [
-            { offset: 0, name: "Time To Go", unit: "min", scale: 1 },
-            { offset: 2, name: "Voltage (Main)", unit: "V", scale: 0.01 },
-            { offset: 4, name: "Alarm Reason", unit: "code", scale: 1 },
-            { offset: 6, name: "Aux Voltage", unit: "V", scale: 0.01 },
-            { offset: 8, name: "Current", unit: "A", scale: -0.001 }, // Signed!
-            // 8-9-10 often used for Current (3 bytes). We treat as 2 for compatibility, might need checking.
-            { offset: 10, name: "Consumed Ah", unit: "Ah", scale: -0.1 },
-            { offset: 12, name: "State of Charge", unit: "%", scale: 0.1 }
-        ]
-    };
+    // --- Logic ---
 
-    function guessLabel(offset, rawUnsigned, rawSigned) {
-        // 1. Try exact match from Dictionary
-        const dict = KNOWN_LAYOUTS[2]; // Defaulting to layout 2 (Battery Monitor)
-        const match = dict.find(d => d.offset == offset);
-        if (match) return match;
-
-        // 2. Heuristics if no dictionary match
-        if (rawUnsigned > 1000 && rawUnsigned < 1500) return { name: "Voltage?", unit: "V", scale: 0.01 };
-        if (rawUnsigned <= 1000 && offset > 10) return { name: "SOC?", unit: "%", scale: 0.1 };
-        
-        return null;
-    }
-
-    // --- Core Logic ---
-
-    function setStatus(msg, type = 'normal') {
-        const el = document.getElementById('status');
-        el.innerText = msg;
-        el.className = type;
-    }
-
-    function renderDashboard(currentBytes) {
+    function renderDashboard(bytes) {
         const grid = document.getElementById('dashboardGrid');
         grid.innerHTML = '';
-        
         const keys = Object.keys(savedConfig.sensors);
+        
         if(keys.length === 0) {
             document.getElementById('noDashMsg').classList.remove('hidden');
             return;
@@ -176,146 +145,65 @@
         keys.forEach(offset => {
             const conf = savedConfig.sensors[offset];
             const idx = parseInt(offset);
-            
-            // Value Parsing
-            let val = 0;
             let display = "--";
-            
-            if (currentBytes && idx + 1 < currentBytes.length) {
-                const rawU = currentBytes[idx] | (currentBytes[idx+1] << 8);
+            let isAlarm = false;
+
+            if (bytes && idx + 1 < bytes.length) {
+                const rawU = bytes[idx] | (bytes[idx+1] << 8);
                 if(rawU !== 0xFFFF && rawU !== 0x7FFF) {
-                    // Handle Signed/Unsigned based on saved config
-                    // If scale is negative, we treat raw as signed 16-bit
+                    let val = rawU;
+                    // Signed handling
                     if (conf.scale < 0) {
-                        let rawS = rawU > 32767 ? rawU - 65536 : rawU;
-                        val = rawS * Math.abs(conf.scale);
+                        if(val > 32767) val -= 65536;
+                        val = val * Math.abs(conf.scale);
                     } else {
-                        val = rawU * conf.scale;
+                        val = val * conf.scale;
                     }
+
                     display = val.toFixed(Math.abs(conf.scale) < 0.1 ? 2 : 1);
                     
                     // Alarms
-                    let isAlarm = false;
                     if (conf.min !== "" && val < parseFloat(conf.min)) isAlarm = true;
                     if (conf.max !== "" && val > parseFloat(conf.max)) isAlarm = true;
                     if (isAlarm) triggerNotification(conf.name, display);
-
-                    // Render Card
-                    const div = document.createElement('div');
-                    div.className = `dash-card ${isAlarm ? 'alarm' : ''}`;
-                    div.innerHTML = `
-                        <button class="edit-btn" onclick="openEdit('${offset}')">⚙️</button>
-                        <div class="label">${conf.name}</div>
-                        <div class="value">${display}</div>
-                        <div class="unit">${conf.unit}</div>
-                    `;
-                    grid.appendChild(div);
                 }
             }
+
+            const div = document.createElement('div');
+            div.className = `dash-card ${isAlarm ? 'alarm' : ''}`;
+            div.innerHTML = `
+                <button class="edit-btn" onclick="openEdit('${offset}')">⚙️</button>
+                <div class="label">${conf.name}</div>
+                <div class="value">${display}</div>
+                <div class="unit">${conf.unit}</div>
+            `;
+            grid.appendChild(div);
         });
     }
 
     function renderDiagnostic(bytes) {
         const list = document.getElementById('diagnosticList');
         list.innerHTML = '';
-
-        // We iterate by 2 bytes (16-bit words)
-        for (let i = 0; i < bytes.length - 1; i += 2) {
-            const rawU = bytes[i] | (bytes[i+1] << 8); // Unsigned
-            const rawS = rawU > 32767 ? rawU - 65536 : rawU; // Signed
-            
-            if (rawU === 0 || rawU === 0xFFFF || rawU === 0x7FFF) continue; // Skip noise
+        // Start at 2 because Byte 0 is Record Type, Byte 1 is usually padding
+        for (let i = 2; i < bytes.length - 1; i += 2) {
+            const rawU = bytes[i] | (bytes[i+1] << 8);
+            if (rawU === 0 || rawU === 0xFFFF) continue;
 
             const isTracked = savedConfig.sensors.hasOwnProperty(i.toString());
-            
-            // Dictionary Lookup
-            const guess = guessLabel(i, rawU, rawS);
-            
-            let displayVal = rawU;
-            let labelHtml = "";
-
-            if (guess) {
-                labelHtml = `<div class="diag-guess">Detected: ${guess.name}</div>`;
-                // Apply guessed scale for preview
-                let val = (guess.scale < 0 ? rawS : rawU) * Math.abs(guess.scale);
-                displayVal = `${val.toFixed(2)} ${guess.unit}`;
-            } else {
-                displayVal = `Raw: ${rawU}`;
-            }
+            const rawS = rawU > 32767 ? rawU - 65536 : rawU;
 
             const row = document.createElement('div');
             row.className = `diag-row ${isTracked ? 'active' : ''}`;
             row.innerHTML = `
                 <div class="diag-info">
                     <div class="diag-offset">Offset ${i}</div>
-                    ${labelHtml}
-                    <div class="diag-val">${displayVal}</div>
+                    <div class="diag-val">${rawU} <span style="font-size:0.8rem;color:#666">Signed: ${rawS}</span></div>
                 </div>
-                <button class="btn btn-primary btn-small" onclick="openEdit('${i}', ${rawU}, '${guess ? guess.name : ''}')">
+                <button class="btn btn-primary btn-small" onclick="openEdit('${i}')">
                     ${isTracked ? 'Edit' : 'Track'}
                 </button>
             `;
             list.appendChild(row);
-        }
-    }
-
-    // --- Modal & Config ---
-    window.openEdit = function(offset, rawU, guessName) {
-        const conf = savedConfig.sensors[offset] || { name: "", scale: 0.1, unit: "", min: "", max: "" };
-        
-        document.getElementById('editOffset').value = offset;
-        document.getElementById('editName').value = conf.name || guessName || "";
-        document.getElementById('editUnit').value = conf.unit || "";
-        document.getElementById('editMin').value = conf.min;
-        document.getElementById('editMax').value = conf.max;
-        
-        // Auto-select scale based on dictionary guess
-        if (!savedConfig.sensors[offset]) {
-            const dict = KNOWN_LAYOUTS[2].find(d => d.offset == offset);
-            if (dict) {
-                document.getElementById('editScale').value = dict.scale;
-                document.getElementById('editUnit').value = dict.unit;
-            }
-        } else {
-             document.getElementById('editScale').value = conf.scale;
-        }
-
-        document.getElementById('editModal').classList.remove('hidden');
-    }
-
-    window.closeModal = function() { document.getElementById('editModal').classList.add('hidden'); }
-
-    document.getElementById('saveSensorBtn').addEventListener('click', () => {
-        const offset = document.getElementById('editOffset').value;
-        savedConfig.sensors[offset] = {
-            name: document.getElementById('editName').value || `Sensor ${offset}`,
-            scale: parseFloat(document.getElementById('editScale').value),
-            unit: document.getElementById('editUnit').value,
-            min: document.getElementById('editMin').value,
-            max: document.getElementById('editMax').value
-        };
-        saveConfig();
-        closeModal();
-    });
-
-    document.getElementById('deleteSensorBtn').addEventListener('click', () => {
-        delete savedConfig.sensors[document.getElementById('editOffset').value];
-        saveConfig();
-        closeModal();
-    });
-
-    function saveConfig() {
-        savedConfig.key = document.getElementById('keyInput').value.trim();
-        localStorage.setItem('victron_smart_config', JSON.stringify(savedConfig));
-    }
-
-    // --- Notifications ---
-    let lastNotify = 0;
-    function triggerNotification(name, val) {
-        if (Date.now() - lastNotify > 60000 && Notification.permission === "granted") {
-            new Notification(`Alert: ${name}`, { body: `Value is ${val}` });
-            if (navigator.vibrate) navigator.vibrate([200, 200, 200]);
-            lastNotify = Date.now();
         }
     }
 
@@ -329,11 +217,14 @@
     document.getElementById('connectBtn').addEventListener('click', async () => {
         const keyHex = document.getElementById('keyInput').value.trim();
         if (keyHex.length !== 32) return alert("Invalid Key");
-        saveConfig();
+        
+        // Save key
+        savedConfig.key = keyHex;
+        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
+        
         if (Notification.permission !== "granted") Notification.requestPermission();
 
         try {
-            setStatus("Initializing...");
             const keyBytes = hexToBytes(keyHex);
             encryptionKey = await window.crypto.subtle.importKey("raw", keyBytes, { name: "AES-CTR" }, false, ["decrypt"]);
             
@@ -344,21 +235,20 @@
             });
 
             if (typeof device.watchAdvertisements !== 'function') {
-                alert("Browser not supported. Enable 'Experimental Web Platform features' in chrome://flags");
+                alert("Update Chrome on Android & Enable Experimental Web Platform features");
                 return;
             }
 
             document.getElementById('connectionPanel').classList.add('hidden');
-            document.getElementById('connectedControls').classList.remove('hidden');
-            document.getElementById('dashboardSection').classList.remove('hidden');
-            document.getElementById('diagnosticSection').classList.remove('hidden');
-            setStatus("Connected. Waiting for data...", "connected");
+            document.getElementById('appInterface').classList.remove('hidden');
+            document.getElementById('status').innerText = `Connected to ${device.name}`;
+            document.getElementById('status').style.color = "#00c851";
 
             device.addEventListener('advertisementreceived', async (event) => {
                 const victronData = event.manufacturerData.get(VICTRON_ID);
                 if (!victronData) return;
                 const data = new Uint8Array(victronData.buffer);
-                if (data[0] !== 0x10) return;
+                if (data[0] !== 0x10) return; // Ensure encrypted
 
                 const nonce = new Uint8Array(16);
                 nonce.set([data[1], data[2], data[3], 0x00, data[4], data[5]], 0);
@@ -367,18 +257,74 @@
                     const decryptedBuffer = await window.crypto.subtle.decrypt(
                         { name: "AES-CTR", counter: nonce, length: 64 },
                         encryptionKey,
-                        data.slice(7)
+                        data.slice(7) // Payload starts at 7
                     );
                     const decrypted = new Uint8Array(decryptedBuffer);
+
+                    // --- FILTERING LOGIC ---
+                    const recordType = decrypted[0]; // First byte is Record Type
+                    const selectedProfile = document.getElementById('deviceProfile').value;
+
+                    document.getElementById('recTypeDisplay').innerText = `RecType: 0x${recordType.toString(16).toUpperCase().padStart(2,'0')}`;
+
+                    // If profile is selected and doesn't match, IGNORE this packet
+                    if (selectedProfile !== "ALL" && parseInt(selectedProfile) !== recordType) {
+                        return; 
+                    }
+
                     renderDashboard(decrypted);
                     renderDiagnostic(decrypted);
-                    setStatus(`Monitoring ${device.name}`, "connected");
+                    
                 } catch (e) {}
             });
 
             await device.watchAdvertisements();
-        } catch (err) { setStatus("Error: " + err, "error"); }
+        } catch (err) { alert(err); }
     });
+    
+    // --- Config Modal ---
+    window.openEdit = function(offset) {
+        const conf = savedConfig.sensors[offset] || { name: "", scale: 0.1, unit: "", min: "", max: "" };
+        document.getElementById('editOffset').value = offset;
+        document.getElementById('editName').value = conf.name;
+        document.getElementById('editScale').value = conf.scale;
+        document.getElementById('editUnit').value = conf.unit;
+        document.getElementById('editMin').value = conf.min;
+        document.getElementById('editMax').value = conf.max;
+        document.getElementById('editModal').classList.remove('hidden');
+    }
+    window.closeModal = function() { document.getElementById('editModal').classList.add('hidden'); }
+    
+    document.getElementById('saveSensorBtn').addEventListener('click', () => {
+        const offset = document.getElementById('editOffset').value;
+        savedConfig.sensors[offset] = {
+            name: document.getElementById('editName').value || `Offset ${offset}`,
+            scale: parseFloat(document.getElementById('editScale').value),
+            unit: document.getElementById('editUnit').value,
+            min: document.getElementById('editMin').value,
+            max: document.getElementById('editMax').value
+        };
+        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
+        closeModal();
+    });
+
+    document.getElementById('deleteSensorBtn').addEventListener('click', () => {
+        delete savedConfig.sensors[document.getElementById('editOffset').value];
+        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
+        closeModal();
+    });
+
+    document.getElementById('disconnectBtn').addEventListener('click', () => location.reload());
+
+    // Notification helper
+    let lastNotify = 0;
+    function triggerNotification(name, val) {
+        if (Date.now() - lastNotify > 60000 && Notification.permission === "granted") {
+            new Notification(`Alert: ${name}`, { body: `Value is ${val}` });
+            if (navigator.vibrate) navigator.vibrate([200, 200, 200]);
+            lastNotify = Date.now();
+        }
+    }
 </script>
 </body>
 </html>
