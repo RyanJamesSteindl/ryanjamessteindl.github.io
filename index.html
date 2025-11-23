@@ -3,68 +3,442 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Victron Mapped Dashboard - DIAGNOSTIC</title>
+    <title>Victron Mapped Dashboard</title>
+    <!-- Load Tailwind CSS for modern, responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Minimal and high-contrast styles */
-        :root { --bg: #000; --card-bg: #1e1e1e; --text: #f0f0f0; --accent: #00d2ff; --danger: #ff4444; --success: #00c851; --warning: #ffbb33; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        /* Custom styles and variable definitions */
+        :root {
+            --bg: #0d1117;
+            --card-bg: #161b22;
+            --text: #c9d1d9;
+            --accent: #238636;
+            --danger: #da3633;
+            --warning: #f2cc0b;
+            --info: #58a6ff;
+        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg); color: var(--text); }
+        .data-card { background-color: var(--card-bg); border-radius: 0.5rem; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.1); transition: transform 0.2s; }
+        .data-card:hover { transform: translateY(-2px); }
+        .data-label { color: var(--text); opacity: 0.7; font-size: 0.875rem; }
+        .data-value { font-size: 1.75rem; font-weight: 700; color: #fff; line-height: 1; }
+        .btn-connect { background-color: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 0.5rem; transition: background-color 0.3s; }
+        .btn-connect:hover:not(:disabled) { background-color: #3b9e4a; }
+        .status-box { padding: 8px; border-radius: 0.5rem; margin-top: 10px; font-weight: 600; text-align: center; }
+        .status-connecting { background-color: var(--info); color: var(--bg); }
+        .status-error { background-color: var(--danger); color: white; }
+        .status-streaming { background-color: var(--accent); color: white; }
+        .status-disconnected { background-color: #333; color: var(--text); }
         
-        /* Status/Version Header */
-        #headerStatus { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 10px; border-bottom: 1px solid #333;}
-        #status { font-weight: bold; color: var(--text); font-size: 1.1rem; }
-        .version-tag { font-size: 0.85rem; color: var(--accent); background: #111; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--accent); }
+        /* Responsive Grid for mobile */
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
 
-        .diagnostic-box { background: #333; padding: 20px; border-radius: 8px; text-align: center; margin-top: 30px; }
-        .diagnostic-box h2 { color: var(--danger); }
+        @keyframes pulse-stream {
+            0% { box-shadow: 0 0 0 0 rgba(35, 134, 54, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(35, 134, 54, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(35, 134, 54, 0); }
+        }
+        .streaming-indicator {
+            animation: pulse-stream 1.5s infinite;
+        }
+        
     </style>
 </head>
-<body>
+<body class="p-4 md:p-8 min-h-screen">
 
-    <div id="headerStatus">
-        <!-- Main Status Message - Initial state is PENDING, must be updated by JS -->
-        <div id="status" style="color:var(--warning);">JS CHECK: PENDING (v5.0.0)</div>
-        <!-- HARD-CODED Version Display -->
-        <div class="version-tag">v5.0.0</div>
-    </div>
-    
-    <div id="connectionPanel">
-        <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key" style="width:100%;" />
-        <button id="connectBtn" style="background-color: var(--accent); color: #000;" 
-                onclick="alert('JavaScript is still blocked. Connection logic cannot run.'); return false;">
-            Connect (JS Blocked)
-        </button>
-        <div style="text-align:center; font-size:0.8rem; color:#555; margin-top: 10px;">
-            If this button shows an alert, JS is partially working. If nothing happens, it is fully blocked.
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6 text-center text-white">Victron Energy Dashboard</h1>
+        
+        <!-- Connection Panel -->
+        <div class="data-card mb-6">
+            <h2 class="text-xl font-semibold mb-3 text-white">Device Connection</h2>
+            
+            <input type="text" id="keyInput" placeholder="Paste 32-char Hex Encryption Key (e.g., 0123...CDEF)" 
+                   class="w-full p-3 mb-4 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:ring-blue-500 focus:border-blue-500" />
+            
+            <div class="flex flex-col sm:flex-row gap-4">
+                <button id="connectBtn" class="btn-connect flex-grow font-bold text-lg" onclick="handleConnect()">
+                    Connect & Start Stream
+                </button>
+                <button id="disconnectBtn" class="btn-connect flex-grow font-bold text-lg opacity-50" onclick="handleDisconnect()" disabled>
+                    Disconnect
+                </button>
+            </div>
+            
+            <div id="statusDisplay" class="status-box status-disconnected">
+                Status: Ready to connect.
+            </div>
         </div>
-    </div>
 
-    <div class="diagnostic-box">
-        <h2>Execution Environment Failure</h2>
-        <p style="color:var(--text);">
-            If the status above is **PENDING**, the hosting environment (iframe/sandbox) is preventing the core JavaScript code from running, which is required for Web Bluetooth and device decryption.
-        </p>
-        <p style="color:var(--warning); font-size: 0.9rem;">
-            **Workaround:** Please try copying the contents of this file and running it directly in a standalone Chrome browser on an Android device (via a hosted service like GitHub Pages or a local server) to bypass the platform's security restrictions.
-        </p>
+        <!-- Metrics Display -->
+        <div id="metricsDisplay" class="metrics-grid">
+            <!-- Data Cards will be updated here by JavaScript -->
+            <div id="V" class="data-card"><div class="data-label">Voltage (V)</div><div class="data-value">--</div></div>
+            <div id="I" class="data-card"><div class="data-label">Current (A)</div><div class="data-value">--</div></div>
+            <div id="P" class="data-card"><div class="data-label">Power (W)</div><div class="data-value">--</div></div>
+            <div id="SOC" class="data-card"><div class="data-label">State of Charge (%)</div><div class="data-value">--</div></div>
+            <div id="T" class="data-card"><div class="data-label">Temperature (C)</div><div class="data-value">--</div></div>
+            <div id="H19" class="data-card"><div class="data-label">Yield Today (kWh)</div><div class="data-value">--</div></div>
+        </div>
+
+        <!-- Raw Data Debug (Optional) -->
+        <div class="mt-8 data-card">
+            <h3 class="text-lg font-semibold mb-2 text-white">Raw VE.Direct Data</h3>
+            <pre id="rawData" class="bg-gray-800 p-3 rounded-lg text-xs overflow-auto h-32 text-gray-400"></pre>
+        </div>
+        
     </div>
 
 <script>
-    // --- FINAL ATTEMPT AT SYNCHRONOUS JS EXECUTION ---
-    const APP_VERSION = "5.0.0";
-    const statusEl = document.getElementById('status');
+    // --- Application Constants ---
+    const APP_VERSION = "6.0.0";
+    const VICTRON_SERVICE_UUID = "0000a000-0000-1000-8000-00805f9b34fb";
+    const WRITE_CHARACTERISTIC_UUID = "0000a001-0000-1000-8000-00805f9b34fb";
+    const NOTIFY_CHARACTERISTIC_UUID = "0000a002-0000-1000-8000-00805f9b34fb";
+    const MAX_VE_DIRECT_PAYLOAD = 18; // 16 bytes payload + 2 bytes CRC
 
-    // This code runs immediately when the <script> tag is parsed.
-    if (statusEl) {
-        statusEl.innerText = `JS CHECK: OK (v${APP_VERSION})`;
-        statusEl.style.color = 'var(--success)';
-        statusEl.style.fontSize = '1.2rem';
-    } else {
-        // Fallback for extreme paranoia, unlikely to ever execute
-        console.error("Status element not found.");
+    // --- State Variables ---
+    let device = null;
+    let notifyCharacteristic = null;
+    let writeCharacteristic = null;
+    let cryptoKey = null;
+    let veDirectBuffer = new Uint8Array(0);
+
+    // --- DOM Elements ---
+    const statusDisplay = document.getElementById('statusDisplay');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const keyInput = document.getElementById('keyInput');
+    const rawDataEl = document.getElementById('rawData');
+    const metricsDisplay = document.getElementById('metricsDisplay');
+
+    // --- Utility Functions (AES, Hex, Base64) ---
+
+    /** Converts a Base64 string to an ArrayBuffer. */
+    function base64ToArrayBuffer(base64) {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
     }
 
-    // Since connection is impossible, we remove the complex functions entirely
-    // and rely on the synchronous check above to prove JS is running.
+    /** Converts an ArrayBuffer to a Hex string. */
+    function bufferToHex(buffer) {
+        return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
+    }
+
+    /** Generates an AES-128 key from the 32-character hex key string. */
+    async function generateCryptoKey(hexKey) {
+        if (hexKey.length !== 32) {
+            throw new Error("Key must be 32 characters long (16 bytes).");
+        }
+        const keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        return window.crypto.subtle.importKey(
+            "raw",
+            keyBytes,
+            { name: "AES-CBC", length: 128 },
+            false,
+            ["encrypt", "decrypt"]
+        );
+    }
+
+    /** Decrypts a Victron notification payload (16 bytes). */
+    async function decryptPayload(encryptedBuffer, key) {
+        // IV is always the first 16 bytes of the *encrypted* data in AES-CBC mode, but here, 
+        // the Victron protocol seems to use a static or derived IV.
+        // For simplicity and adherence to common Victron implementations:
+        // Assume IV is 16 zero bytes (00 * 16) for AES-128-CBC.
+        const iv = new Uint8Array(16); // All zeros
+        
+        try {
+            const decryptedBuffer = await window.crypto.subtle.decrypt(
+                { name: "AES-CBC", iv: iv },
+                key,
+                encryptedBuffer
+            );
+            return new Uint8Array(decryptedBuffer);
+        } catch (error) {
+            console.error("Decryption failed:", error);
+            throw new Error("Decryption failed. Check your key.");
+        }
+    }
+
+    // --- VE.Direct Protocol Parsing ---
+
+    /** Calculates the CRC checksum for a VE.Direct frame payload. */
+    function calculateCRC(buffer) {
+        let crc = 0;
+        for (let i = 0; i < buffer.byteLength; i++) {
+            crc = (crc + buffer[i]) & 0xFF;
+        }
+        return (256 - crc) & 0xFF; // Two's complement of the sum of all bytes
+    }
+
+    /** Parses a single VE.Direct data frame. */
+    function parseVeDirectFrame(data) {
+        const frame = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        const records = {};
+        
+        // VE.Direct frames are key/value pairs (Label:Value)
+        // We look for 0x0D 0x0A (CR LF) to separate records and 0x09 (TAB) to separate key and value.
+        const textDecoder = new TextDecoder('utf-8');
+        const text = textDecoder.decode(data);
+        const lines = text.split('\r\n').filter(line => line.includes('\t'));
+        
+        lines.forEach(line => {
+            const parts = line.split('\t');
+            if (parts.length === 2) {
+                const label = parts[0].trim();
+                const value = parts[1].trim();
+                records[label] = value;
+            }
+        });
+
+        return records;
+    }
+
+    // --- Data Handling and Display ---
+
+    /** Updates the main metrics display cards. */
+    function updateMetricsDisplay(records) {
+        const mappings = {
+            'V': { unit: 'V', factor: 1000 },
+            'I': { unit: 'A', factor: 1000 },
+            'P': { unit: 'W', factor: 1 },
+            'SOC': { unit: '%', factor: 10 },
+            'T': { unit: 'C', factor: 100 }, // Battery temperature
+            'H19': { unit: 'kWh', factor: 100 }, // Total Yield Today
+        };
+
+        let isDataPresent = false;
+
+        for (const [key, map] of Object.entries(mappings)) {
+            const el = document.getElementById(key);
+            if (el && records[key] !== undefined) {
+                isDataPresent = true;
+                const rawValue = parseInt(records[key], 10);
+                let displayValue;
+                
+                if (key === 'T') {
+                    // Temperature is 0.01 C, convert to C
+                    displayValue = (rawValue / map.factor).toFixed(1);
+                } else if (key === 'SOC') {
+                    // SOC is 0.1%, convert to %
+                    displayValue = (rawValue / map.factor).toFixed(1);
+                } else if (key === 'H19') {
+                    // Yield is 0.01 kWh, convert to kWh
+                    displayValue = (rawValue / map.factor).toFixed(2);
+                } else {
+                    // V and I are 0.001 units
+                    displayValue = (rawValue / map.factor).toFixed(2);
+                }
+                
+                el.querySelector('.data-value').innerText = `${displayValue} ${map.unit}`;
+            }
+        }
+        
+        if (isDataPresent) {
+            // Add a streaming pulse effect
+            metricsDisplay.classList.add('streaming-indicator');
+            setTimeout(() => {
+                metricsDisplay.classList.remove('streaming-indicator');
+            }, 300);
+        }
+        
+        // Update raw data log
+        rawDataEl.innerText = JSON.stringify(records, null, 2);
+    }
+
+    /** Main handler for incoming Bluetooth notifications (Encrypted data chunks). */
+    async function handleNotifications(event) {
+        const encryptedData = new Uint8Array(event.target.value.buffer);
+        
+        try {
+            // 1. Decrypt the 16-byte chunk
+            const decryptedChunk = await decryptPayload(encryptedData.buffer, cryptoKey);
+            
+            // 2. Append to the global VE.Direct buffer
+            const newBuffer = new Uint8Array(veDirectBuffer.length + decryptedChunk.length);
+            newBuffer.set(veDirectBuffer);
+            newBuffer.set(decryptedChunk, veDirectBuffer.length);
+            veDirectBuffer = newBuffer;
+            
+            // 3. Check for the VE.Direct end-of-frame marker (CR LF CR LF)
+            const endMarker = new Uint8Array([0x0D, 0x0A, 0x0D, 0x0A]);
+            
+            // This is complex: we must search for the end marker and handle potential partial frames.
+            const frameIndex = veDirectBuffer.findIndex((byte, i) => 
+                i >= 3 && 
+                byte === endMarker[3] && 
+                veDirectBuffer[i-1] === endMarker[2] && 
+                veDirectBuffer[i-2] === endMarker[1] && 
+                veDirectBuffer[i-3] === endMarker[0]
+            );
+
+            if (frameIndex !== -1) {
+                const frameEnd = frameIndex + 1; // End of the full frame
+                const fullFrame = veDirectBuffer.slice(0, frameEnd);
+                
+                // Process the complete frame
+                const records = parseVeDirectFrame(fullFrame);
+                updateMetricsDisplay(records);
+                
+                // Remove the processed frame from the buffer
+                veDirectBuffer = veDirectBuffer.slice(frameEnd);
+            }
+
+        } catch (error) {
+            console.error("Error processing data stream:", error.message);
+            updateStatus(`Data Error: ${error.message}`, 'error');
+            // If decryption fails repeatedly, you might want to disconnect.
+        }
+    }
+
+    // --- Bluetooth Connection Logic ---
+
+    /** Sets the UI status message. */
+    function updateStatus(message, type = 'disconnected') {
+        statusDisplay.innerText = `Status: ${message}`;
+        statusDisplay.className = 'status-box'; // Reset classes
+
+        if (type === 'connecting') {
+            statusDisplay.classList.add('status-connecting');
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = true;
+            keyInput.disabled = true;
+        } else if (type === 'streaming') {
+            statusDisplay.classList.add('status-streaming');
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+            keyInput.disabled = true;
+        } else if (type === 'error') {
+            statusDisplay.classList.add('status-error');
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            keyInput.disabled = false;
+        } else { // disconnected
+            statusDisplay.classList.add('status-disconnected');
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            keyInput.disabled = false;
+        }
+    }
+
+    /** Starts monitoring the notification characteristic. */
+    async function startMonitoring() {
+        if (!notifyCharacteristic) {
+            updateStatus("Notification characteristic not found.", 'error');
+            return;
+        }
+
+        updateStatus("Starting notifications...", 'connecting');
+
+        // Set up the listener
+        notifyCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+        
+        // Start the notifications
+        await notifyCharacteristic.startNotifications();
+        
+        // Send the initial command to request data (The Victron dongle needs a command to start sending data)
+        const commandText = "AT+OK\r\n"; // Common initialization command
+        const encoder = new TextEncoder();
+        const commandBuffer = encoder.encode(commandText);
+        
+        await writeCharacteristic.writeValue(commandBuffer);
+
+        updateStatus("Streaming Data", 'streaming');
+    }
+
+    /** Handles the main connection workflow. */
+    async function handleConnect() {
+        if (!navigator.bluetooth) {
+            updateStatus("Web Bluetooth not supported in this browser/environment.", 'error');
+            return;
+        }
+
+        const hexKey = keyInput.value.trim().toUpperCase();
+        if (hexKey.length !== 32 || !/^[0-9A-F]{32}$/.test(hexKey)) {
+            updateStatus("Please enter a valid 32-character hex key.", 'error');
+            return;
+        }
+        
+        updateStatus("Generating encryption key...", 'connecting');
+        try {
+            cryptoKey = await generateCryptoKey(hexKey);
+        } catch(e) {
+            updateStatus(`Invalid Key Format: ${e.message}`, 'error');
+            return;
+        }
+
+        updateStatus("Requesting device...", 'connecting');
+        
+        try {
+            device = await navigator.bluetooth.requestDevice({
+                filters: [{ services: [VICTRON_SERVICE_UUID] }]
+            });
+
+            device.addEventListener('gattserverdisconnected', handleDisconnect);
+            
+            updateStatus(`Connecting to ${device.name}...`, 'connecting');
+            const server = await device.gatt.connect();
+
+            updateStatus("Getting service...", 'connecting');
+            const service = await server.getPrimaryService(VICTRON_SERVICE_UUID);
+
+            updateStatus("Getting characteristics...", 'connecting');
+            notifyCharacteristic = await service.getCharacteristic(NOTIFY_CHARACTERISTIC_UUID);
+            writeCharacteristic = await service.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
+
+            // Once all setup is complete, start the monitoring loop
+            await startMonitoring();
+
+        } catch (error) {
+            console.error("Connection Error:", error);
+            updateStatus(`Connection Failed: ${error.message || 'Unknown error'}`, 'error');
+            // Ensure state is clean on failure
+            handleDisconnect(true); 
+        }
+    }
+
+    /** Handles device disconnection. */
+    function handleDisconnect(silent = false) {
+        if (device && device.gatt.connected) {
+            device.gatt.disconnect();
+        }
+        
+        if (notifyCharacteristic) {
+            notifyCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
+            // Optional: try to stop notifications, but often disconnect handles this
+            try { notifyCharacteristic.stopNotifications(); } catch(e) { console.warn("Could not stop notifications cleanly:", e); }
+        }
+
+        device = null;
+        notifyCharacteristic = null;
+        writeCharacteristic = null;
+        cryptoKey = null;
+        veDirectBuffer = new Uint8Array(0);
+        
+        if (!silent) {
+            updateStatus("Disconnected. Ready to try again.", 'disconnected');
+        }
+        
+        // Reset the raw data and metrics
+        rawDataEl.innerText = "No data streaming.";
+        document.querySelectorAll('.data-value').forEach(el => el.innerText = '--');
+    }
+
+    // Initialize state on load
+    window.onload = () => {
+        updateStatus("Ready to connect (v" + APP_VERSION + ")");
+        document.getElementById('disconnectBtn').addEventListener('click', () => handleDisconnect(false));
+    };
+
+    // Global cleanup handler (optional but good practice)
+    window.onbeforeunload = handleDisconnect;
+
 </script>
 </body>
 </html>
