@@ -91,7 +91,7 @@
 
 <script>
     // --- Application Constants ---
-    const APP_VERSION = "6.0.1";
+    const APP_VERSION = "6.0.2";
     // Victron Manufacturer ID (Crucial for filtering)
     const VICTRON_MANUFACTURER_ID = 0x02E1; 
     // Victron Service UUIDs (used after device selection)
@@ -227,8 +227,6 @@
             veDirectBuffer = newBuffer;
             
             // 3. Check for the VE.Direct end-of-frame marker (CR LF CR LF)
-            const endMarker = new Uint8Array([0x0D, 0x0A, 0x0D, 0x0A]);
-            
             // Search for the end marker
             const fullText = new TextDecoder().decode(veDirectBuffer);
             const frameIndex = fullText.indexOf('\r\n\r\n');
@@ -329,10 +327,10 @@
         updateStatus("Searching for Victron devices...", 'connecting');
         
         try {
-            // --- CRITICAL CHANGE: FILTER BY MANUFACTURER DATA ---
+            // --- CRITICAL CHANGE: FILTER BY MANUFACTURER DATA (FIXED CONFLICT) ---
             device = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: true,
-                optionalServices: [VICTRON_SERVICE_UUID], // Use optional services if the device is found
+                // Removed the conflicting acceptAllDevices: true
+                optionalServices: [VICTRON_SERVICE_UUID], 
                 filters: [{
                     manufacturerData: [{
                         companyIdentifier: VICTRON_MANUFACTURER_ID
@@ -363,7 +361,7 @@
             } else if (error.name === 'SecurityError') {
                  message = "Security Error: Ensure Location/Bluetooth is ON and you are using HTTPS.";
             } else if (message.includes('No Services with UUID')) {
-                 message = "Device found but required Victron service is unavailable. Check permissions.";
+                 message = "Device found but required Victron service is unavailable. Check device power/range.";
             }
 
             updateStatus(`Connection Failed: ${message}`, 'error');
