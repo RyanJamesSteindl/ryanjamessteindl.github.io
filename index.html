@@ -47,22 +47,28 @@
         .modal { background: #222; padding: 25px; border-radius: 16px; width: 90%; max-width: 350px; border: 1px solid #444; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.85rem; }
-
-        /* Footer */
-        .footer { text-align: center; margin-top: 40px; font-size: 0.7rem; color: #444; }
+        
+        /* Status/Version Header */
+        #headerStatus { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        #status { font-weight: bold; color: #aaa; }
+        #appVersion { font-size: 0.75rem; color: #555; background: #1e1e1e; padding: 4px 8px; border-radius: 4px; }
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
     </style>
 </head>
 <body>
 
-    <div id="status" style="text-align:center; color:#888; margin-bottom:10px;">Ready</div>
+    <!-- Combined Status and Version Display -->
+    <div id="headerStatus">
+        <div id="status">Ready</div>
+        <div id="appVersion"></div>
+    </div>
 
     <!-- Connect Panel -->
     <div id="connectionPanel">
         <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key" />
         <button id="connectBtn" class="btn btn-primary">Connect</button>
-        <div style="text-align:center; font-size:0.8rem; color:#555;">Chrome on Android Required</div>
+        <div style="text-align:center; font-size:0.8rem; color:#555;">Chrome on Android Required (Web Bluetooth)</div>
     </div>
 
     <!-- Main App (Hidden until connected) -->
@@ -131,19 +137,15 @@
         </div>
     </div>
 
-    <div class="footer">
-        <span id="appVersion"></span>
-    </div>
-
 <script>
-    const APP_VERSION = "2.1.0";
+    const APP_VERSION = "2.1.1";
     const VICTRON_ID = 0x02E1;
     let encryptionKey = null;
     let savedConfig = JSON.parse(localStorage.getItem('victron_mapped_config')) || { key: "", sensors: {} };
     let dataBuffer = {}; // Stores last decrypted data for each RecType
     
     // Display version on load
-    document.getElementById('appVersion').innerText = `Version: ${APP_VERSION}`;
+    document.getElementById('appVersion').innerText = `v${APP_VERSION}`;
 
     if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
 
@@ -393,11 +395,4 @@
 
     document.getElementById('disconnectBtn').addEventListener('click', () => location.reload());
 
-    // --- BLE and Crypto ---
-    function hexToBytes(hex) {
-        const bytes = [];
-        for (let c = 0; c < hex.length; c += 2) bytes.push(parseInt(hex.substr(c, 2), 16));
-        return new Uint8Array(bytes);
-    }
-
-   
+    // --
