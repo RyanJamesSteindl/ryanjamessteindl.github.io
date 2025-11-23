@@ -51,8 +51,8 @@
         /* Status/Version Header */
         #headerStatus { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         #status { font-weight: bold; color: #aaa; }
-        /* Version style change for high visibility */
-        #appVersion { font-size: 0.85rem; color: var(--accent); background: #000; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--accent); }
+        /* Guaranteed high visibility style */
+        .version-tag { font-size: 0.85rem; color: var(--accent); background: #000; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--accent); }
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
     </style>
@@ -62,15 +62,18 @@
     <!-- Combined Status and Version Display -->
     <div id="headerStatus">
         <!-- Main Status Message -->
-        <div id="status">Ready</div>
-        <!-- HIGHLY VISIBLE Version Display -->
-        <div id="appVersion"></div>
+        <div id="status">Ready (JS Check: Pending)</div>
+        <!-- HARD-CODED Version Display (v3.0.0) -->
+        <div class="version-tag">v3.0.0</div>
     </div>
+    <div id="jsCheckMessage" style="color:var(--warning); margin-bottom:15px; font-size:0.9rem; display:none;"></div>
+
 
     <!-- Connect Panel -->
     <div id="connectionPanel">
         <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key" />
-        <button id="connectBtn" class="btn btn-primary">Connect</button>
+        <!-- Switched to inline onclick for better reliability -->
+        <button id="connectBtn" class="btn btn-primary" onclick="handleConnect()">Connect</button>
         <div style="text-align:center; font-size:0.8rem; color:#555;">Chrome on Android Required (Web Bluetooth)</div>
         <div id="keyErrorMsg" style="color:var(--danger); text-align:center; margin-top:10px; display:none;"></div>
     </div>
@@ -88,7 +91,7 @@
                 <option value="8">DC-DC Converter / Orion - 0x08</option>
                 <option value="213">SmartShunt (Alt Historical) - 0xD5</option>
             </select>
-            <button id="disconnectBtn" class="btn btn-secondary" style="margin-top:10px;">Disconnect</button>
+            <button id="disconnectBtn" class="btn btn-secondary" style="margin-top:10px;" onclick="location.reload()">Disconnect</button>
         </div>
 
         <!-- Dashboard -->
@@ -135,23 +138,29 @@
                 <div class="form-group" style="flex:1"><label>Min Alarm</label><input type="number" id="editMin"></div>
                 <div class="form-group" style="flex:1"><label>Max Alarm</label><input type="number" id="editMax"></div>
             </div>
-            <button id="saveSensorBtn" class="btn btn-primary">Save</button>
-            <button id="deleteSensorBtn" class="btn btn-danger">Remove</button>
+            <button id="saveSensorBtn" class="btn btn-primary" onclick="saveSensor()">Save</button>
+            <button id="deleteSensorBtn" class="btn btn-danger" onclick="deleteSensor()">Remove</button>
             <button onclick="closeModal()" class="btn btn-secondary">Cancel</button>
         </div>
     </div>
 
 <script>
-    const APP_VERSION = "2.1.2";
+    const APP_VERSION = "3.0.0";
     const VICTRON_ID = 0x02E1;
     let encryptionKey = null;
     let savedConfig = JSON.parse(localStorage.getItem('victron_mapped_config')) || { key: "", sensors: {} };
     let dataBuffer = {}; // Stores last decrypted data for each RecType
     
-    // Display version on load
-    document.getElementById('appVersion').innerText = `v${APP_VERSION}`;
+    // --- IMMEDIATE JS CHECK ON LOAD ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const jsCheckMsg = document.getElementById('jsCheckMessage');
+        jsCheckMsg.innerText = "SUCCESS: JavaScript is running.";
+        jsCheckMsg.style.display = 'block';
+        jsCheckMsg.style.color = '#fff';
+        document.getElementById('status').innerText = "Ready (JS Check: OK)";
 
-    if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
+        if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
+    });
 
     // --- VICTRON PROTOCOL MEMORY MAPS ---
     const KNOWN_LAYOUTS = {
@@ -376,19 +385,7 @@
     }
     window.closeModal = function() { document.getElementById('editModal').classList.add('hidden'); }
     
-    document.getElementById('saveSensorBtn').addEventListener('click', () => {
+    window.saveSensor = function() {
         const offset = document.getElementById('editOffset').value;
         savedConfig.sensors[offset] = {
-            name: document.getElementById('editName').value || `Offset ${offset}`,
-            scale: parseFloat(document.getElementById('editScale').value),
-            unit: document.getElementById('editUnit').value,
-            min: document.getElementById('editMin').value,
-            max: document.getElementById('editMax').value
-        };
-        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
-        closeModal();
-        renderUI(); // Rerender with new sensor config
-    });
-
-    document.getElementById('deleteSensorBtn').addEventListener('click', () => {
-        delete savedConfig.sensors[document.getElementById('
+            name: document.getElementById('editName').value || `Offset ${offs
