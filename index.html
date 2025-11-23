@@ -51,7 +51,8 @@
         /* Status/Version Header */
         #headerStatus { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         #status { font-weight: bold; color: #aaa; }
-        #appVersion { font-size: 0.75rem; color: #555; background: #1e1e1e; padding: 4px 8px; border-radius: 4px; }
+        /* Version style change for high visibility */
+        #appVersion { font-size: 0.85rem; color: var(--accent); background: #000; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--accent); }
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
     </style>
@@ -60,7 +61,9 @@
 
     <!-- Combined Status and Version Display -->
     <div id="headerStatus">
+        <!-- Main Status Message -->
         <div id="status">Ready</div>
+        <!-- HIGHLY VISIBLE Version Display -->
         <div id="appVersion"></div>
     </div>
 
@@ -69,6 +72,7 @@
         <input type="text" id="keyInput" placeholder="Paste 32-char Encryption Key" />
         <button id="connectBtn" class="btn btn-primary">Connect</button>
         <div style="text-align:center; font-size:0.8rem; color:#555;">Chrome on Android Required (Web Bluetooth)</div>
+        <div id="keyErrorMsg" style="color:var(--danger); text-align:center; margin-top:10px; display:none;"></div>
     </div>
 
     <!-- Main App (Hidden until connected) -->
@@ -138,7 +142,7 @@
     </div>
 
 <script>
-    const APP_VERSION = "2.1.1";
+    const APP_VERSION = "2.1.2";
     const VICTRON_ID = 0x02E1;
     let encryptionKey = null;
     let savedConfig = JSON.parse(localStorage.getItem('victron_mapped_config')) || { key: "", sensors: {} };
@@ -387,12 +391,4 @@
     });
 
     document.getElementById('deleteSensorBtn').addEventListener('click', () => {
-        delete savedConfig.sensors[document.getElementById('editOffset').value];
-        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
-        closeModal();
-        renderUI(); // Rerender with sensor removed
-    });
-
-    document.getElementById('disconnectBtn').addEventListener('click', () => location.reload());
-
-    // --
+        delete savedConfig.sensors[document.getElementById('
