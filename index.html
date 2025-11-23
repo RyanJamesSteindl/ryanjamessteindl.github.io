@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Victron Mapped Dashboard</title>
     <style>
-        :root { --bg: #121212; --card-bg: #1e1e1e; --text: #e0e0e0; --accent: #00d2ff; --danger: #ff4444; --success: #00c851; }
+        :root { --bg: #121212; --card-bg: #1e1e1e; --text: #e0e0e0; --accent: #00d2ff; --danger: #ff4444; --success: #00c851; --warning: #ffbb33;}
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-bottom: 100px;}
         
         /* Utility */
@@ -39,6 +39,7 @@
         .diag-row.active { border-left-color: var(--success); background: #252525; }
         .diag-info { flex-grow: 1; }
         .diag-offset { font-family: monospace; color: #666; font-size: 0.75rem; margin-bottom: 2px; }
+        .diag-name { font-size: 0.85rem; color: var(--warning); margin-bottom: 5px; font-weight: bold; }
         .diag-val { font-family: monospace; font-size: 1.1rem; font-weight: bold; color: var(--accent); }
 
         /* Modal */
@@ -66,14 +67,13 @@
         
         <!-- Device Selector / Filter -->
         <div class="device-select-container">
-            <label class="device-select-label">Select Memory Map (Stops Data Jumping)</label>
+            <label class="device-select-label">Select Memory Map (Stops Data Jumping & Enables Smart Labels)</label>
             <select id="deviceProfile" onchange="handleProfileChange()">
                 <option value="ALL">Diagnostic (Show ALL Raw Data)</option>
                 <option value="1">Solar Charger (MPPT) - 0x01</option>
                 <option value="2">SmartShunt / BMV-712 - 0x02</option>
-                <option value="3">Inverter - 0x03</option>
                 <option value="8">DC-DC Converter / Orion - 0x08</option>
-                <option value="213">SmartShunt (Alt Firmware) - 0xD5</option>
+                <option value="213">SmartShunt (Alt Historical) - 0xD5</option>
             </select>
             <button id="disconnectBtn" class="btn btn-secondary" style="margin-top:10px;">Disconnect</button>
         </div>
@@ -83,7 +83,7 @@
             <h2>Dashboard</h2>
             <div id="dashboardGrid" class="dashboard-grid"></div>
             <div id="noDashMsg" style="text-align:center; color: #555; padding: 20px; border: 1px dashed #333; border-radius: 8px;">
-                No sensors pinned.<br>Scroll down to diagnostic stream.
+                No sensors pinned.<br>Use the diagnostic stream below to track a sensor.
             </div>
         </div>
 
@@ -105,15 +105,16 @@
         <div class="modal">
             <h3>Configure Sensor</h3>
             <input type="hidden" id="editOffset">
+            <input type="hidden" id="editRawU">
             <div class="form-group"><label>Name</label><input type="text" id="editName"></div>
             <div class="form-group">
                 <label>Scale</label>
                 <select id="editScale">
-                    <option value="0.1">x0.1 (SOC, Temp)</option>
-                    <option value="0.01">x0.01 (Voltage)</option>
+                    <option value="0.1">x0.1 (e.g., SOC, Temp)</option>
+                    <option value="0.01">x0.01 (e.g., Voltage)</option>
+                    <option value="1">x1 (e.g., Power, Code)</option>
                     <option value="-0.001">x0.001 (Signed Current A)</option>
                     <option value="-0.1">x0.1 (Signed Current/Temp)</option>
-                    <option value="1">x1 (Raw)</option>
                 </select>
             </div>
             <div class="form-group"><label>Unit</label><input type="text" id="editUnit"></div>
@@ -131,17 +132,69 @@
     const VICTRON_ID = 0x02E1;
     let encryptionKey = null;
     let savedConfig = JSON.parse(localStorage.getItem('victron_mapped_config')) || { key: "", sensors: {} };
-    // Buffer to store the last decrypted data for each record type (e.g., { '1': [...bytes], '2': [...bytes] })
-    let dataBuffer = {}; 
+    let dataBuffer = {}; // Stores last decrypted data for each RecType
     
     if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
+
+    // --- VICTRON PROTOCOL MEMORY MAPS ---
+    // scale: negative values indicate a signed integer should be used (e.g., -0.001 for current)
+    const KNOWN_LAYOUTS = {
+        // Record Type 0x01: MPPT Solar Charger / SmartSolar (Main Data)
+        1: [
+            { offset: 2, name: "Battery Voltage", unit: "V", scale: 0.01 },
+            { offset: 4, name: "PV Voltage", unit: "V", scale: 0.01 },
+            { offset: 6, name: "PV Power", unit: "W", scale: 1 },
+            { offset: 8, name: "Battery Current", unit: "A", scale: -0.01 }, // Signed
+            { offset: 10, name: "Charger Status Code", unit: "Code", scale: 1 },
+            { offset: 12, name: "Load Current", unit: "A", scale: 0.01 },
+            { offset: 14, name: "Yield Today", unit: "kWh", scale: 0.01 },
+        ],
+        // Record Type 0x02: SmartShunt / BMV-712 (Main Battery Data)
+        2: [
+            { offset: 2, name: "Main Voltage", unit: "V", scale: 0.01 },
+            { offset: 4, name: "Aux Voltage / Midpoint", unit: "V", scale: 0.01 },
+            { offset: 6, name: "Battery Current", unit: "A", scale: -0.001 }, // Signed, High Precision
+            { offset: 8, name: "Consumed Ah", unit: "Ah", scale: -0.1 }, // Signed
+            { offset: 10, name: "State of Charge", unit: "%", scale: 0.1 },
+            { offset: 12, name: "Time To Go", unit: "min", scale: 1 },
+            { offset: 14, name: "Temperature", unit: "°C", scale: -0.1 }, // Signed
+        ],
+        // Record Type 0x08: DC-DC Charger / Orion-Tr Smart (Main Data)
+        8: [
+            { offset: 2, name: "Input Voltage", unit: "V", scale: 0.01 },
+            { offset: 4, name: "Output Voltage", unit: "V", scale: 0.01 },
+            { offset: 6, name: "Output Current", unit: "A", scale: 0.1 },
+            { offset: 8, name: "Charger State", unit: "Code", scale: 1 },
+            { offset: 10, name: "Temperature", unit: "°C", scale: -0.1 }, // Signed
+        ],
+        // Record Type 0xD5 (213): SmartShunt / BMV (Alternative/Historical Data)
+        213: [
+            { offset: 2, name: "Min. Voltage (Historical)", unit: "V", scale: 0.01 },
+            { offset: 4, name: "Max. Voltage (Historical)", unit: "V", scale: 0.01 },
+            { offset: 6, name: "Deepest Discharge", unit: "Ah", scale: 0.1 },
+            { offset: 8, name: "Last Full Charge Time", unit: "min", scale: 1 },
+            { offset: 10, name: "Total Ah Drawn", unit: "Ah", scale: 0.1 },
+            { offset: 12, name: "Number of Cycles", unit: "Count", scale: 1 },
+        ]
+    };
+    
+    function calculateScaledValue(rawU, scale) {
+        let val = rawU;
+        // Check for signed number (scale is negative)
+        if (scale < 0) {
+            if (val > 32767) val -= 65536;
+            val = val * Math.abs(scale);
+        } else {
+            val = val * scale;
+        }
+        return val;
+    }
 
     // --- Data Rendering ---
     
     function getCurrentData() {
         const selectedProfile = document.getElementById('deviceProfile').value;
         if (selectedProfile === "ALL") {
-            // If ALL, show the most recently received packet (which is usually the last one stored)
             const keys = Object.keys(dataBuffer);
             if (keys.length > 0) return dataBuffer[keys[keys.length - 1]];
             return null;
@@ -177,16 +230,9 @@
             if (bytes && idx + 1 < bytes.length) {
                 const rawU = bytes[idx] | (bytes[idx+1] << 8);
                 if(rawU !== 0xFFFF && rawU !== 0x7FFF) {
-                    let val = rawU;
-                    // Signed handling: If scale is negative, apply sign logic
-                    if (conf.scale < 0) {
-                        if(val > 32767) val -= 65536;
-                        val = val * Math.abs(conf.scale);
-                    } else {
-                        val = val * conf.scale;
-                    }
+                    const val = calculateScaledValue(rawU, conf.scale);
 
-                    display = val.toFixed(Math.abs(conf.scale) < 0.1 ? 2 : 1);
+                    display = val.toFixed(Math.abs(conf.scale) < 0.1 ? 3 : 2);
                     
                     // Alarms
                     if (conf.min !== "" && val < parseFloat(conf.min)) isAlarm = true;
@@ -215,6 +261,9 @@
             list.innerHTML = '<div style="color:#888; text-align:center; padding: 20px;">Waiting for data packet...</div>';
             return;
         }
+        
+        const recordType = bytes[0];
+        const layout = KNOWN_LAYOUTS[recordType] || [];
 
         // Start at 2 because Byte 0 is Record Type, Byte 1 is usually padding
         for (let i = 2; i < bytes.length - 1; i += 2) {
@@ -223,15 +272,31 @@
 
             const isTracked = savedConfig.sensors.hasOwnProperty(i.toString());
             const rawS = rawU > 32767 ? rawU - 65536 : rawU;
+            
+            // Smart Labeling
+            const mapEntry = layout.find(entry => entry.offset === i);
+            let nameHtml = '';
+            let valHtml = `${rawU} <span style="font-size:0.8rem;color:#666">Signed: ${rawS}</span>`;
+            let trackParams = `${i}, ${rawU}`;
+
+            if (mapEntry) {
+                const scaledVal = calculateScaledValue(rawU, mapEntry.scale);
+                const displayVal = scaledVal.toFixed(Math.abs(mapEntry.scale) < 0.1 ? 3 : 2);
+                
+                nameHtml = `<div class="diag-name">${mapEntry.name}</div>`;
+                valHtml = `${displayVal} ${mapEntry.unit} <span style="font-size:0.75rem; color:#666; font-weight:normal;">(Raw: ${rawU})</span>`;
+                trackParams = `${i}, ${rawU}, '${mapEntry.name}', ${mapEntry.scale}, '${mapEntry.unit}'`;
+            }
 
             const row = document.createElement('div');
             row.className = `diag-row ${isTracked ? 'active' : ''}`;
             row.innerHTML = `
                 <div class="diag-info">
                     <div class="diag-offset">Offset ${i}</div>
-                    <div class="diag-val">${rawU} <span style="font-size:0.8rem;color:#666">Signed: ${rawS}</span></div>
+                    ${nameHtml}
+                    <div class="diag-val">${valHtml}</div>
                 </div>
-                <button class="btn btn-primary btn-small" onclick="openEdit('${i}')">
+                <button class="btn btn-primary btn-small" onclick="openEdit(${trackParams})">
                     ${isTracked ? 'Edit' : 'Track'}
                 </button>
             `;
@@ -247,104 +312,27 @@
         if (selectedProfile === "ALL") {
             recTypeDisplay.innerText = "RecType: ALL (Diagnostic)";
         } else {
-            // Update display to show the selected filter
-            recTypeDisplay.innerText = `Filtering for RecType: 0x${parseInt(selectedProfile).toString(16).toUpperCase()}`;
+            const recTypeHex = parseInt(selectedProfile).toString(16).toUpperCase();
+            recTypeDisplay.innerText = `Filtering for RecType: 0x${recTypeHex.padStart(2,'0')}`;
         }
         
         // INSTANTLY render the UI using the buffered data for the newly selected profile
         renderUI();
     }
 
-    // --- Crypto & BLE ---
-    function hexToBytes(hex) {
-        const bytes = [];
-        for (let c = 0; c < hex.length; c += 2) bytes.push(parseInt(hex.substr(c, 2), 16));
-        return new Uint8Array(bytes);
-    }
-
-    document.getElementById('connectBtn').addEventListener('click', async () => {
-        const keyHex = document.getElementById('keyInput').value.trim();
-        if (keyHex.length !== 32) return alert("Invalid Key");
-        
-        savedConfig.key = keyHex;
-        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
-        
-        if (Notification.permission !== "granted") Notification.requestPermission();
-
-        try {
-            const keyBytes = hexToBytes(keyHex);
-            encryptionKey = await window.crypto.subtle.importKey("raw", keyBytes, { name: "AES-CTR" }, false, ["decrypt"]);
-            
-            const device = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: false,
-                filters: [{ namePrefix: 'Victron' }, { namePrefix: 'Smart' }, { namePrefix: 'Blue' }],
-                optionalManufacturerData: [VICTRON_ID]
-            });
-
-            if (typeof device.watchAdvertisements !== 'function') {
-                alert("Update Chrome on Android & Enable Experimental Web Platform features");
-                return;
-            }
-
-            document.getElementById('connectionPanel').classList.add('hidden');
-            document.getElementById('appInterface').classList.remove('hidden');
-            document.getElementById('status').innerText = `Connected to ${device.name}`;
-            document.getElementById('status').style.color = "#00c851";
-
-            device.addEventListener('advertisementreceived', async (event) => {
-                const victronData = event.manufacturerData.get(VICTRON_ID);
-                if (!victronData) return;
-                const data = new Uint8Array(victronData.buffer);
-                if (data[0] !== 0x10) return; // Ensure encrypted
-
-                const nonce = new Uint8Array(16);
-                nonce.set([data[1], data[2], data[3], 0x00, data[4], data[5]], 0);
-
-                try {
-                    const decryptedBuffer = await window.crypto.subtle.decrypt(
-                        { name: "AES-CTR", counter: nonce, length: 64 },
-                        encryptionKey,
-                        data.slice(7) // Payload starts at 7
-                    );
-                    const decrypted = new Uint8Array(decryptedBuffer);
-
-                    // --- NEW BUFFERING AND FILTERING LOGIC ---
-                    const recordType = decrypted[0]; // First byte is Record Type
-                    const recordTypeHex = recordType.toString(16).toUpperCase();
-                    const recordTypeKey = recordType.toString();
-                    
-                    // 1. Store the new packet in the buffer
-                    dataBuffer[recordTypeKey] = decrypted;
-
-                    const selectedProfile = document.getElementById('deviceProfile').value;
-                    
-                    // 2. Update the RecType display to show the packet that JUST ARRIVED
-                    document.getElementById('recTypeDisplay').innerText = `RecType: 0x${recordTypeHex.padStart(2,'0')}`;
-
-
-                    // 3. Only trigger UI render if the packet matches the filter OR filter is ALL
-                    if (selectedProfile === "ALL" || recordTypeKey === selectedProfile) {
-                        renderUI();
-                    }
-                    
-                } catch (e) {
-                    console.error("Decryption or processing error:", e);
-                }
-            });
-
-            await device.watchAdvertisements();
-        } catch (err) { alert(err); }
-    });
-    
     // --- Config Modal ---
-    window.openEdit = function(offset) {
-        const conf = savedConfig.sensors[offset] || { name: "", scale: 0.1, unit: "", min: "", max: "" };
+    window.openEdit = function(offset, rawU, guessName = '', guessScale = 0.1, guessUnit = '') {
+        const conf = savedConfig.sensors[offset] || { name: guessName, scale: guessScale, unit: guessUnit, min: "", max: "" };
+        
+        // Populate modal fields
         document.getElementById('editOffset').value = offset;
+        document.getElementById('editRawU').value = rawU;
         document.getElementById('editName').value = conf.name;
         document.getElementById('editScale').value = conf.scale;
         document.getElementById('editUnit').value = conf.unit;
         document.getElementById('editMin').value = conf.min;
         document.getElementById('editMax').value = conf.max;
+        
         document.getElementById('editModal').classList.remove('hidden');
     }
     window.closeModal = function() { document.getElementById('editModal').classList.add('hidden'); }
@@ -372,16 +360,31 @@
 
     document.getElementById('disconnectBtn').addEventListener('click', () => location.reload());
 
-    // Notification helper
-    let lastNotify = 0;
-    function triggerNotification(name, val) {
-        if (Date.now() - lastNotify > 60000 && Notification.permission === "granted") {
-            new Notification(`Alert: ${name}`, { body: `Value is ${val}` });
-            if (navigator.vibrate) navigator.vibrate([200, 200, 200]);
-            lastNotify = Date.now();
-        }
+    // --- BLE and Crypto ---
+    function hexToBytes(hex) {
+        const bytes = [];
+        for (let c = 0; c < hex.length; c += 2) bytes.push(parseInt(hex.substr(c, 2), 16));
+        return new Uint8Array(bytes);
     }
-</script>
-</body>
-</html>
 
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+        const keyHex = document.getElementById('keyInput').value.trim();
+        if (keyHex.length !== 32) return alert("Invalid Key");
+        
+        savedConfig.key = keyHex;
+        localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
+        
+        if (Notification.permission !== "granted") Notification.requestPermission();
+
+        try {
+            const keyBytes = hexToBytes(keyHex);
+            encryptionKey = await window.crypto.subtle.importKey("raw", keyBytes, { name: "AES-CTR" }, false, ["decrypt"]);
+            
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: false,
+                filters: [{ namePrefix: 'Victron' }, { namePrefix: 'Smart' }, { namePrefix: 'Blue' }],
+                optionalManufacturerData: [VICTRON_ID]
+            });
+
+            if (typeof device.watchAdvertisements !== 'function') {
+                alert("Update C
