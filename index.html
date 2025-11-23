@@ -91,19 +91,22 @@
 
 <script>
     // --- Application Constants ---
-    const APP_VERSION = "6.0.2";
+    const APP_VERSION = "7.0.0";
     // Victron Manufacturer ID (Crucial for filtering)
     const VICTRON_MANUFACTURER_ID = 0x02E1; 
-    // Victron Service UUIDs (used after device selection)
+    // Victron Service and Characteristic UUIDs
     const VICTRON_SERVICE_UUID = "0000a000-0000-1000-8000-00805f9b34fb";
     const WRITE_CHARACTERISTIC_UUID = "0000a001-0000-1000-8000-00805f9b34fb";
     const NOTIFY_CHARACTERISTIC_UUID = "0000a002-0000-1000-8000-00805f9b34fb";
+    // *** NEW: Characteristic to send the encryption key to ***
+    const AUTH_CHARACTERISTIC_UUID = "0000a004-0000-1000-8000-00805f9b34fb"; 
 
     // --- State Variables ---
     let device = null;
+    let server = null; // Store the GATT server globally
     let notifyCharacteristic = null;
     let writeCharacteristic = null;
-    let cryptoKey = null;
+    let cryptoKey = null; // Stored AES Key object
     let veDirectBuffer = new Uint8Array(0);
 
     // --- DOM Elements ---
@@ -114,7 +117,7 @@
     const rawDataEl = document.getElementById('rawData');
     const metricsDisplay = document.getElementById('metricsDisplay');
 
-    // --- Utility Functions (AES, Hex, Base64) ---
+    // --- Utility Functions (AES) ---
 
     /** Generates an AES-128 key from the 32-character hex key string. */
     async function generateCryptoKey(hexKey) {
@@ -144,14 +147,16 @@
             );
             return new Uint8Array(decryptedBuffer);
         } catch (error) {
+            // Note: Decryption failing here often means the key is correct but the buffer is garbage, 
+            // or the key itself is wrong.
             console.error("Decryption failed:", error);
-            throw new Error("Decryption failed. Check your key.");
+            throw new Error("Decryption failed. Check key or data integrity.");
         }
     }
 
     // --- VE.Direct Protocol Parsing ---
 
-    /** Parses a single VE.Direct data frame (abbreviated for size). */
+    /** Parses a single VE.Direct data frame. */
     function parseVeDirectFrame(data) {
         const records = {};
         const textDecoder = new TextDecoder('utf-8');
@@ -174,7 +179,6 @@
 
     /** Updates the main metrics display cards. */
     function updateMetricsDisplay(records) {
-        // Mappings defined for common VE.Direct labels
         const mappings = {
             'V': { unit: 'V', factor: 1000 },
             'I': { unit: 'A', factor: 1000 },
@@ -193,7 +197,6 @@
                 const rawValue = parseInt(records[key], 10);
                 let displayValue;
                 
-                // Determine factor based on common Victron scaling
                 const factor = map.factor;
                 displayValue = (rawValue / factor).toFixed(key === 'SOC' || key === 'T' ? 1 : 2);
                 
@@ -227,27 +230,45 @@
             veDirectBuffer = newBuffer;
             
             // 3. Check for the VE.Direct end-of-frame marker (CR LF CR LF)
-            // Search for the end marker
             const fullText = new TextDecoder().decode(veDirectBuffer);
             const frameIndex = fullText.indexOf('\r\n\r\n');
 
             if (frameIndex !== -1) {
-                // The frame ends AFTER the marker (4 bytes)
                 const frameEnd = frameIndex + 4; 
                 const fullFrame = veDirectBuffer.slice(0, frameEnd);
                 
-                // Process the complete frame
                 const records = parseVeDirectFrame(fullFrame);
                 updateMetricsDisplay(records);
                 
-                // Remove the processed frame from the buffer
                 veDirectBuffer = veDirectBuffer.slice(frameEnd);
             }
 
         } catch (error) {
             console.error("Error processing data stream:", error.message);
-            updateStatus(`Data Error: ${error.message}`, 'error');
+            // Don't stop the stream on a data error, just log it.
         }
+    }
+    
+    // *** NEW AUTHENTICATION STEP ***
+    /** Writes the encryption key to the authentication characteristic. */
+    async function authenticateDevice() {
+        if (!server) throw new Error("GATT Server not connected.");
+        
+        // The authentication characteristic is typically found in the Victron service.
+        updateStatus("Authenticating device...", 'connecting');
+
+        // 1. Get the authentication characteristic
+        const authService = await server.getPrimaryService(VICTRON_SERVICE_UUID);
+        const authCharacteristic = await authService.getCharacteristic(AUTH_CHARACTERISTIC_UUID);
+
+        // 2. Prepare the 32-byte key (16 bytes for the key, 16 bytes for IV/padding - we send the raw 16 bytes)
+        const hexKey = keyInput.value.trim().toUpperCase();
+        const keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        
+        // 3. Write the key
+        await authCharacteristic.writeValue(keyBytes);
+
+        updateStatus("Authentication successful.", 'connecting');
     }
 
     // --- Bluetooth Connection Logic ---
@@ -327,9 +348,8 @@
         updateStatus("Searching for Victron devices...", 'connecting');
         
         try {
-            // --- CRITICAL CHANGE: FILTER BY MANUFACTURER DATA (FIXED CONFLICT) ---
+            // 1. Request device using the manufacturer filter
             device = await navigator.bluetooth.requestDevice({
-                // Removed the conflicting acceptAllDevices: true
                 optionalServices: [VICTRON_SERVICE_UUID], 
                 filters: [{
                     manufacturerData: [{
@@ -341,15 +361,20 @@
             device.addEventListener('gattserverdisconnected', handleDisconnect);
             
             updateStatus(`Connecting to ${device.name}...`, 'connecting');
-            const server = await device.gatt.connect();
+            server = await device.gatt.connect(); // Store the server reference
 
-            updateStatus("Getting service...", 'connecting');
+            // 2. *** AUTHENTICATE DEVICE IMMEDIATELY ***
+            await authenticateDevice(); 
+            
+            // 3. Get the data service and characteristics
+            updateStatus("Getting data service...", 'connecting');
             const service = await server.getPrimaryService(VICTRON_SERVICE_UUID);
 
-            updateStatus("Getting characteristics...", 'connecting');
+            updateStatus("Getting data characteristics...", 'connecting');
             notifyCharacteristic = await service.getCharacteristic(NOTIFY_CHARACTERISTIC_UUID);
             writeCharacteristic = await service.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
 
+            // 4. Start the stream
             await startMonitoring();
 
         } catch (error) {
@@ -362,6 +387,8 @@
                  message = "Security Error: Ensure Location/Bluetooth is ON and you are using HTTPS.";
             } else if (message.includes('No Services with UUID')) {
                  message = "Device found but required Victron service is unavailable. Check device power/range.";
+            } else if (message.includes('GATT operation failed for unknown reason')) {
+                 message = "Authentication or GATT service access failed. Verify device key or retry.";
             }
 
             updateStatus(`Connection Failed: ${message}`, 'error');
@@ -380,6 +407,7 @@
         }
 
         device = null;
+        server = null;
         notifyCharacteristic = null;
         writeCharacteristic = null;
         cryptoKey = null;
@@ -397,7 +425,7 @@
     // Initialize state on load
     window.onload = () => {
         updateStatus("Ready to connect");
-        // Pre-fill key from last session if available
+        // Pre-fill key from last session if available (using localStorage is okay here)
         const savedKey = localStorage.getItem('victron_key');
         if (savedKey) keyInput.value = savedKey;
         
