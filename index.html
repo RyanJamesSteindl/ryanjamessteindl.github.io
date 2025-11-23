@@ -22,6 +22,7 @@
         select#deviceProfile { background-color: #000; border-color: var(--accent); color: var(--accent); font-weight: bold; }
 
         /* Dashboard Grid */
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 30px; color: var(--accent); font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
         .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; margin-bottom: 30px; }
         .dash-card { background: var(--card-bg); padding: 15px; border-radius: 12px; text-align: center; position: relative; border: 1px solid #333; }
         .dash-card.alarm { border-color: var(--danger); background: rgba(255, 68, 68, 0.1); animation: pulse 1s infinite; }
@@ -65,14 +66,14 @@
         
         <!-- Device Selector / Filter -->
         <div class="device-select-container">
-            <label class="device-select-label">Select Memory Map (Fixes Jumping Data)</label>
-            <select id="deviceProfile">
-                <option value="ALL">Diagnostic (Show All Raw Data)</option>
-                <option value="0x01">Solar Charger (MPPT)</option>
-                <option value="0x02">SmartShunt / BMV-712</option>
-                <option value="0x03">Inverter</option>
-                <option value="0x08">DC-DC Converter / Orion</option>
-                <option value="0xD5">SmartShunt (Alt Firmware)</option>
+            <label class="device-select-label">Select Memory Map (Stops Data Jumping)</label>
+            <select id="deviceProfile" onchange="handleProfileChange()">
+                <option value="ALL">Diagnostic (Show ALL Raw Data)</option>
+                <option value="1">Solar Charger (MPPT) - 0x01</option>
+                <option value="2">SmartShunt / BMV-712 - 0x02</option>
+                <option value="3">Inverter - 0x03</option>
+                <option value="8">DC-DC Converter / Orion - 0x08</option>
+                <option value="213">SmartShunt (Alt Firmware) - 0xD5</option>
             </select>
             <button id="disconnectBtn" class="btn btn-secondary" style="margin-top:10px;">Disconnect</button>
         </div>
@@ -93,6 +94,9 @@
                 <div id="recTypeDisplay" class="current-record-type">Waiting...</div>
             </div>
             <div id="diagnosticList" class="diag-list"></div>
+            <p style="font-size: 0.75rem; color: #666; margin-top: 15px;">
+                Note: Data updates only when a packet for the selected profile is received.
+            </p>
         </div>
     </div>
 
@@ -127,9 +131,31 @@
     const VICTRON_ID = 0x02E1;
     let encryptionKey = null;
     let savedConfig = JSON.parse(localStorage.getItem('victron_mapped_config')) || { key: "", sensors: {} };
+    // Buffer to store the last decrypted data for each record type (e.g., { '1': [...bytes], '2': [...bytes] })
+    let dataBuffer = {}; 
+    
     if(savedConfig.key) document.getElementById('keyInput').value = savedConfig.key;
 
-    // --- Logic ---
+    // --- Data Rendering ---
+    
+    function getCurrentData() {
+        const selectedProfile = document.getElementById('deviceProfile').value;
+        if (selectedProfile === "ALL") {
+            // If ALL, show the most recently received packet (which is usually the last one stored)
+            const keys = Object.keys(dataBuffer);
+            if (keys.length > 0) return dataBuffer[keys[keys.length - 1]];
+            return null;
+        }
+        
+        const profileKey = parseInt(selectedProfile).toString();
+        return dataBuffer[profileKey] || null;
+    }
+
+    function renderUI() {
+        const currentData = getCurrentData();
+        renderDashboard(currentData);
+        renderDiagnostic(currentData);
+    }
 
     function renderDashboard(bytes) {
         const grid = document.getElementById('dashboardGrid');
@@ -152,7 +178,7 @@
                 const rawU = bytes[idx] | (bytes[idx+1] << 8);
                 if(rawU !== 0xFFFF && rawU !== 0x7FFF) {
                     let val = rawU;
-                    // Signed handling
+                    // Signed handling: If scale is negative, apply sign logic
                     if (conf.scale < 0) {
                         if(val > 32767) val -= 65536;
                         val = val * Math.abs(conf.scale);
@@ -184,6 +210,12 @@
     function renderDiagnostic(bytes) {
         const list = document.getElementById('diagnosticList');
         list.innerHTML = '';
+        
+        if (!bytes) {
+            list.innerHTML = '<div style="color:#888; text-align:center; padding: 20px;">Waiting for data packet...</div>';
+            return;
+        }
+
         // Start at 2 because Byte 0 is Record Type, Byte 1 is usually padding
         for (let i = 2; i < bytes.length - 1; i += 2) {
             const rawU = bytes[i] | (bytes[i+1] << 8);
@@ -207,6 +239,22 @@
         }
     }
 
+    // --- Profile Change Handler ---
+    window.handleProfileChange = function() {
+        const selectedProfile = document.getElementById('deviceProfile').value;
+        const recTypeDisplay = document.getElementById('recTypeDisplay');
+        
+        if (selectedProfile === "ALL") {
+            recTypeDisplay.innerText = "RecType: ALL (Diagnostic)";
+        } else {
+            // Update display to show the selected filter
+            recTypeDisplay.innerText = `Filtering for RecType: 0x${parseInt(selectedProfile).toString(16).toUpperCase()}`;
+        }
+        
+        // INSTANTLY render the UI using the buffered data for the newly selected profile
+        renderUI();
+    }
+
     // --- Crypto & BLE ---
     function hexToBytes(hex) {
         const bytes = [];
@@ -218,7 +266,6 @@
         const keyHex = document.getElementById('keyInput').value.trim();
         if (keyHex.length !== 32) return alert("Invalid Key");
         
-        // Save key
         savedConfig.key = keyHex;
         localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
         
@@ -261,21 +308,28 @@
                     );
                     const decrypted = new Uint8Array(decryptedBuffer);
 
-                    // --- FILTERING LOGIC ---
+                    // --- NEW BUFFERING AND FILTERING LOGIC ---
                     const recordType = decrypted[0]; // First byte is Record Type
-                    const selectedProfile = document.getElementById('deviceProfile').value;
-
-                    document.getElementById('recTypeDisplay').innerText = `RecType: 0x${recordType.toString(16).toUpperCase().padStart(2,'0')}`;
-
-                    // If profile is selected and doesn't match, IGNORE this packet
-                    if (selectedProfile !== "ALL" && parseInt(selectedProfile) !== recordType) {
-                        return; 
-                    }
-
-                    renderDashboard(decrypted);
-                    renderDiagnostic(decrypted);
+                    const recordTypeHex = recordType.toString(16).toUpperCase();
+                    const recordTypeKey = recordType.toString();
                     
-                } catch (e) {}
+                    // 1. Store the new packet in the buffer
+                    dataBuffer[recordTypeKey] = decrypted;
+
+                    const selectedProfile = document.getElementById('deviceProfile').value;
+                    
+                    // 2. Update the RecType display to show the packet that JUST ARRIVED
+                    document.getElementById('recTypeDisplay').innerText = `RecType: 0x${recordTypeHex.padStart(2,'0')}`;
+
+
+                    // 3. Only trigger UI render if the packet matches the filter OR filter is ALL
+                    if (selectedProfile === "ALL" || recordTypeKey === selectedProfile) {
+                        renderUI();
+                    }
+                    
+                } catch (e) {
+                    console.error("Decryption or processing error:", e);
+                }
             });
 
             await device.watchAdvertisements();
@@ -306,12 +360,14 @@
         };
         localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
         closeModal();
+        renderUI(); // Rerender with new sensor config
     });
 
     document.getElementById('deleteSensorBtn').addEventListener('click', () => {
         delete savedConfig.sensors[document.getElementById('editOffset').value];
         localStorage.setItem('victron_mapped_config', JSON.stringify(savedConfig));
         closeModal();
+        renderUI(); // Rerender with sensor removed
     });
 
     document.getElementById('disconnectBtn').addEventListener('click', () => location.reload());
