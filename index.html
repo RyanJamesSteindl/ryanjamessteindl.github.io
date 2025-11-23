@@ -91,22 +91,22 @@
 
 <script>
     // --- Application Constants ---
-    const APP_VERSION = "7.0.0";
-    // Victron Manufacturer ID (Crucial for filtering)
+    const APP_VERSION = "7.0.2";
+    // Victron Manufacturer ID
     const VICTRON_MANUFACTURER_ID = 0x02E1; 
     // Victron Service and Characteristic UUIDs
     const VICTRON_SERVICE_UUID = "0000a000-0000-1000-8000-00805f9b34fb";
     const WRITE_CHARACTERISTIC_UUID = "0000a001-0000-1000-8000-00805f9b34fb";
     const NOTIFY_CHARACTERISTIC_UUID = "0000a002-0000-1000-8000-00805f9b34fb";
-    // *** NEW: Characteristic to send the encryption key to ***
+    // Characteristic to send the encryption key to
     const AUTH_CHARACTERISTIC_UUID = "0000a004-0000-1000-8000-00805f9b34fb"; 
 
     // --- State Variables ---
     let device = null;
-    let server = null; // Store the GATT server globally
+    let server = null; 
     let notifyCharacteristic = null;
     let writeCharacteristic = null;
-    let cryptoKey = null; // Stored AES Key object
+    let cryptoKey = null; 
     let veDirectBuffer = new Uint8Array(0);
 
     // --- DOM Elements ---
@@ -147,8 +147,6 @@
             );
             return new Uint8Array(decryptedBuffer);
         } catch (error) {
-            // Note: Decryption failing here often means the key is correct but the buffer is garbage, 
-            // or the key itself is wrong.
             console.error("Decryption failed:", error);
             throw new Error("Decryption failed. Check key or data integrity.");
         }
@@ -249,26 +247,38 @@
         }
     }
     
-    // *** NEW AUTHENTICATION STEP ***
     /** Writes the encryption key to the authentication characteristic. */
     async function authenticateDevice() {
         if (!server) throw new Error("GATT Server not connected.");
         
-        // The authentication characteristic is typically found in the Victron service.
         updateStatus("Authenticating device...", 'connecting');
 
-        // 1. Get the authentication characteristic
-        const authService = await server.getPrimaryService(VICTRON_SERVICE_UUID);
-        const authCharacteristic = await authService.getCharacteristic(AUTH_CHARACTERISTIC_UUID);
+        try {
+            // 1. Get the authentication characteristic
+            const authService = await server.getPrimaryService(VICTRON_SERVICE_UUID);
+            const authCharacteristic = await authService.getCharacteristic(AUTH_CHARACTERISTIC_UUID);
 
-        // 2. Prepare the 32-byte key (16 bytes for the key, 16 bytes for IV/padding - we send the raw 16 bytes)
-        const hexKey = keyInput.value.trim().toUpperCase();
-        const keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-        
-        // 3. Write the key
-        await authCharacteristic.writeValue(keyBytes);
+            // 2. Prepare the 16 bytes key
+            const hexKey = keyInput.value.trim().toUpperCase();
+            const keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+            
+            // 3. Write the key
+            await authCharacteristic.writeValue(keyBytes);
 
-        updateStatus("Authentication successful.", 'connecting');
+            updateStatus("Authentication successful.", 'connecting');
+
+        } catch (error) {
+            // Check for specific error types to provide better diagnostics
+            if (error.name === 'NotFoundError') {
+                if (error.message.includes(AUTH_CHARACTERISTIC_UUID.toUpperCase())) {
+                    throw new Error("Authentication Characteristic (a004) not found on device.");
+                } else if (error.message.includes(VICTRON_SERVICE_UUID.toUpperCase())) {
+                    throw new Error("Victron Service (a000) not found (requires key to be written to a different service).");
+                }
+            }
+            // Generic write failure (usually key rejection)
+            throw new Error(`Key Write Failed: ${error.message}`);
+        }
     }
 
     // --- Bluetooth Connection Logic ---
@@ -348,7 +358,7 @@
         updateStatus("Searching for Victron devices...", 'connecting');
         
         try {
-            // 1. Request device using the manufacturer filter
+            // 1. Request device using the strict manufacturer filter
             device = await navigator.bluetooth.requestDevice({
                 optionalServices: [VICTRON_SERVICE_UUID], 
                 filters: [{
@@ -361,9 +371,9 @@
             device.addEventListener('gattserverdisconnected', handleDisconnect);
             
             updateStatus(`Connecting to ${device.name}...`, 'connecting');
-            server = await device.gatt.connect(); // Store the server reference
+            server = await device.gatt.connect(); 
 
-            // 2. *** AUTHENTICATE DEVICE IMMEDIATELY ***
+            // 2. AUTHENTICATE DEVICE IMMEDIATELY
             await authenticateDevice(); 
             
             // 3. Get the data service and characteristics
@@ -382,13 +392,19 @@
             let message = error.message || 'Unknown error';
             
             if (error.name === 'NotFoundError') {
-                message = "Search canceled or no Victron devices found nearby.";
+                message = "Search canceled or no Victron devices found nearby. Check range/permissions.";
             } else if (error.name === 'SecurityError') {
                  message = "Security Error: Ensure Location/Bluetooth is ON and you are using HTTPS.";
             } else if (message.includes('No Services with UUID')) {
                  message = "Device found but required Victron service is unavailable. Check device power/range.";
             } else if (message.includes('GATT operation failed for unknown reason')) {
                  message = "Authentication or GATT service access failed. Verify device key or retry.";
+            } else if (message.includes('Authentication Characteristic')) {
+                 message = `Auth Failed: ${message}`;
+            } else if (message.includes('Victron Service')) {
+                 message = `Auth Failed: ${message}`;
+            } else if (message.includes('Key Write Failed')) {
+                 message = `Auth Failed: ${message}. Check key accuracy.`;
             }
 
             updateStatus(`Connection Failed: ${message}`, 'error');
