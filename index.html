@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ryan James Steindl</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600&family=DM+Sans:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:      #faf7f2;
+            --text:    #2c2420;
+            --muted:   #8a7060;
+            --accent:  #6b7c4a;
+            --border:  #e8ddd4;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'DM Sans', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .card {
+            text-align: center;
+            max-width: 420px;
+            width: 100%;
+        }
+
+        .monogram {
+            font-family: 'Lora', serif;
+            font-weight: 600;
+            font-size: 4.5rem;
+            color: var(--accent);
+            letter-spacing: 0.12em;
+            line-height: 1;
+            margin-bottom: 1.5rem;
+        }
+
+        .divider {
+            width: 40px;
+            height: 2px;
+            background-color: var(--accent);
+            margin: 0 auto 1.5rem;
+            opacity: 0.5;
+        }
+
+        .name {
+            font-family: 'Lora', serif;
+            font-weight: 400;
+            font-size: 1.5rem;
+            letter-spacing: 0.02em;
+            color: var(--text);
+            margin-bottom: 1rem;
+        }
+
+        .bio {
+            font-size: 0.95rem;
+            line-height: 1.7;
+            color: var(--muted);
+            margin-bottom: 2.5rem;
+            font-style: italic;
+        }
+
+        .links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .links a {
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--muted);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 2px;
+            transition: color 0.2s, border-color 0.2s;
+        }
+
+        .links a:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="monogram">RJS</div>
+        <div class="divider"></div>
+        <h1 class="name">Ryan James Steindl</h1>
+        <p class="bio">Builder and engineer.<br>Curious by nature, thorough by practice.</p>
+        <nav class="links">
+            <a href="https://github.com/ryanjamessteindl" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://linkedin.com/in/ryan-steindl" target="_blank" rel="noopener">LinkedIn</a>
+            <a href="mailto:ryan.james.steindl@gmail.com">Email</a>
+        </nav>
+    </div>
+</body>
+</html>
